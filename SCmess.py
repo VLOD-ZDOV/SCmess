@@ -6,7 +6,6 @@ import base64
 import os
 import json
 from datetime import datetime
-
 # Определение пути к директории "Загрузки" в зависимости от платформы
 def get_download_directory():
     if os.name == 'nt':  # Windows
@@ -17,14 +16,53 @@ def get_download_directory():
         return os.path.join(os.environ['HOME'], 'Downloads')
 
 # Генерация пары ключей RSA с указанием владельца и назначения
-def generate_key_pair(owner, recipient, pub_dir=None, priv_dir=None):
-    current_time = datetime.now().strftime("%Y%m%d%H%M%S")
-    if not pub_dir or not priv_dir:
-        pub_dir = get_download_directory()
-        priv_dir = get_download_directory()
+# Функция генерации пары ключей RSA с использованием имени пользователя и текущей даты
+def get_private_key_directory():
+    """Определяет директорию для сохранения приватного ключа в зависимости от платформы."""
+    if os.name == 'nt':  # Windows
+        # Папка пользователя на Windows
+        return os.path.expanduser("~")
+    elif 'ANDROID_ROOT' in os.environ:  # Termux на Android
+        # Папка Termux на Android
+        return '/data/data/com.termux/files/home'
+    else:  # Другие платформы
+        # Папка по умолчанию на других системах
+        return os.path.expanduser("~")
 
-    priv_filename = os.path.join(priv_dir, f"RSA_{owner}_to_{recipient}_priv_{current_time}.pem")
-    pub_filename = os.path.join(pub_dir, f"RSA_{owner}_to_{recipient}_pub_{current_time}.pem")
+def get_public_key_directory():
+    """Определяет директорию для сохранения публичного ключа в зависимости от платформы."""
+    if os.name == 'nt':  # Windows
+        # Папка "Загрузки" пользователя на Windows
+        return os.path.join(os.environ['USERPROFILE'], 'Downloads')
+    elif 'ANDROID_ROOT' in os.environ:  # Termux на Android
+        # Папка на Android для сохранения публичных ключей
+        return '/sdcard/'
+    else:  # Другие платформы
+        return os.path.expanduser("~")
+
+def find_public_key(username):
+    """Ищет публичный ключ в папке загрузок на платформе Android или Windows."""
+    if 'ANDROID_ROOT' in os.environ:  # Termux на Android
+        download_dir = '/sdcard/Download'
+    else:
+        download_dir = get_download_directory()
+
+    for filename in os.listdir(download_dir):
+        if filename.startswith(f"RSA_{username}_pub_") and filename.endswith(".pem"):
+            return os.path.join(download_dir, filename)
+    return None
+
+def generate_key_pair(username):
+    """Генерация пары ключей RSA с использованием имени пользователя и текущей даты."""
+    current_time = datetime.now().strftime("%Y%m%d%H%M%S")
+    
+    # Определяем пути для сохранения ключей
+    pub_dir = get_public_key_directory()  # Путь для публичного ключа
+    priv_dir = get_private_key_directory()  # Путь для приватного ключа
+
+    # Генерация имени файлов для ключей на основе имени пользователя и текущей даты
+    priv_filename = os.path.join(priv_dir, f"RSA_{username}_priv_{current_time}.pem")
+    pub_filename = os.path.join(pub_dir, f"RSA_{username}_pub_{current_time}.pem")
 
     # Генерация приватного ключа
     private_key = rsa.generate_private_key(
@@ -51,8 +89,10 @@ def generate_key_pair(owner, recipient, pub_dir=None, priv_dir=None):
             format=serialization.PublicFormat.SubjectPublicKeyInfo
         ))
 
-    return priv_filename, pub_filename
+    print(f"Приватный ключ сохранен в: {priv_filename}")
+    print(f"Публичный ключ сохранен в: {pub_filename}")
 
+    return priv_filename, pub_filename
 # Сохранение информации о ключах в JSON файл
 def save_keys_to_json(username, pub_filename, priv_filename, json_file="keys.json"):
     key_data = {
@@ -61,16 +101,29 @@ def save_keys_to_json(username, pub_filename, priv_filename, json_file="keys.jso
         "private_key_path": priv_filename
     }
 
+    # Проверка существования JSON-файла
     if os.path.exists(json_file):
         with open(json_file, 'r+') as file:
-            data = json.load(file)
+            try:
+                data = json.load(file)
+                
+                # Если данные в JSON не являются списком, преобразуем их в список
+                if isinstance(data, dict):
+                    data = [data]
+                elif not isinstance(data, list):
+                    raise ValueError("Неверный формат JSON файла: ожидается список.")
+                
+            except json.JSONDecodeError:
+                # Если файл пуст или поврежден, создаем новый список
+                data = []
+            
             data.append(key_data)
             file.seek(0)
             json.dump(data, file, indent=4)
     else:
+        # Если JSON-файл не существует, создаем новый файл со списком ключей
         with open(json_file, 'w') as file:
             json.dump([key_data], file, indent=4)
-
 # Поиск публичного ключа в директории "Загрузки"
 def find_public_key(username):
     download_dir = get_download_directory()
@@ -80,28 +133,68 @@ def find_public_key(username):
     return None
 
 # Добавление ключа друга в JSON
-def add_friend_public_key(username, friend_username, json_file="keys.json"):
-    friend_pub_key_path = find_public_key(friend_username)
-    if friend_pub_key_path:
-        friend_key_data = {
-            "username": friend_username,
-            "public_key_path": friend_pub_key_path,
-            "private_key_path": None
-        }
+def scan_for_public_keys():
+    """Сканирует папку загрузок на наличие файлов с публичными ключами и предлагает добавить их."""
+    if 'ANDROID_ROOT' in os.environ:  # Termux на Android
+        download_dir = '/sdcard/Download'
+    else:  # Windows
+        download_dir = os.path.join(os.environ['USERPROFILE'], 'Downloads')
 
-        if os.path.exists(json_file):
-            with open(json_file, 'r+') as file:
+    found_keys = []
+    for filename in os.listdir(download_dir):
+        if filename.endswith('.pem') and 'pub' in filename:
+            found_keys.append(os.path.join(download_dir, filename))
+
+    return found_keys
+
+def prompt_add_found_keys(json_file="keys.json"):
+    """Предлагает пользователю добавить найденные публичные ключи в JSON файл."""
+    found_keys = scan_for_public_keys()
+    if not found_keys:
+        print("Публичные ключи не найдены в папке загрузок.")
+        return
+
+    for key_path in found_keys:
+        # Извлекаем имя пользователя из имени файла ключа
+        username = key_path.split('_')[-3]  # Предполагается, что имя в формате RSA_<username>_pub_*.pem
+        print(f"Найден ключ пользователя '{username}': {key_path}")
+        add = input(f"Добавить ключ пользователя '{username}'? (y/n): ")
+        if add.lower() == 'y':
+            add_friend_public_key(username, key_path, json_file)
+
+def add_friend_public_key(username, friend_pub_key_path, json_file="keys.json"):
+    """Добавляет публичный ключ друга в JSON файл."""
+    friend_key_data = {
+        "username": username,
+        "public_key_path": friend_pub_key_path,
+        "private_key_path": None
+    }
+
+    if os.path.exists(json_file):
+        with open(json_file, 'r+') as file:
+            try:
                 data = json.load(file)
-                data.append(friend_key_data)
-                file.seek(0)
-                json.dump(data, file, indent=4)
-        else:
-            with open(json_file, 'w') as file:
-                json.dump([friend_key_data], file, indent=4)
+                
+                # Если данные в JSON не являются списком, преобразуем их в список
+                if isinstance(data, dict):
+                    data = [data]
+                elif not isinstance(data, list):
+                    raise ValueError("Неверный формат JSON файла: ожидается список.")
+                
+            except json.JSONDecodeError:
+                # Если файл пуст или поврежден, создаем новый список
+                data = []
 
-        print(f"Публичный ключ друга '{friend_username}' успешно добавлен в JSON файл.")
+            data.append(friend_key_data)
+            file.seek(0)
+            json.dump(data, file, indent=4)
     else:
-        print(f"Публичный ключ для '{friend_username}' не найден в директории загрузок.")
+        # Если JSON-файл не существует, создаем новый файл со списком ключей
+        with open(json_file, 'w') as file:
+            json.dump([friend_key_data], file, indent=4)
+
+    print(f"Публичный ключ пользователя '{username}' успешно добавлен в JSON файл.")
+
 def delete_user_from_json(username, json_file="keys.json"):
     if os.path.exists(json_file):
         with open(json_file, 'r+') as file:
@@ -116,7 +209,8 @@ def delete_user_from_json(username, json_file="keys.json"):
         print(f"JSON файл '{json_file}' не существует.")
 
 # Функция расшифровки с выбором ключа
-def decrypt_message_choice(json_file="keys.json"):
+def decrypt_message_choice(json_file, encrypted_message):
+    """Функция для расшифровки сообщения с выбором ключа."""
     with open(json_file, 'r') as file:
         data = json.load(file)
         print("Доступные пользователи для расшифровки:")
@@ -126,16 +220,27 @@ def decrypt_message_choice(json_file="keys.json"):
     choice = int(input("Выберите пользователя (введите номер): ")) - 1
     user_data = data[choice]
 
-    if user_data['private_key_path']:
-        private_key_path = user_data['private_key_path']
-    else:
-        print("У пользователя нет приватного ключа.")
-        return
+    private_key_path = user_data['private_key_path']
 
-    encrypted_message = input("Введите зашифрованный текст: ")
-    decrypted_message = decrypt_message_choice(private_key_path, encrypted_message)
-    if decrypted_message:
-        print(f"Расшифрованный текст: {decrypted_message}")
+    # Декодируем сообщение из base64
+    encrypted_message_bytes = base64.b64decode(encrypted_message)
+
+    with open(private_key_path, 'rb') as priv_file:
+        private_key = serialization.load_pem_private_key(
+            priv_file.read(),
+            password=None,
+            backend=default_backend()
+        )
+    decrypted_message = private_key.decrypt(
+        encrypted_message_bytes,
+        padding.OAEP(
+            mgf=padding.MGF1(algorithm=hashes.SHA256()),
+            algorithm=hashes.SHA256(),
+            label=None
+        )
+    )
+
+    return decrypted_message.decode('utf-8')
 def encrypt_message(public_key_path, message):
 
     with open(public_key_path, 'rb') as pub_file:
@@ -261,15 +366,8 @@ def main():
                     for entry in data:
                         print(entry["username"])
 
-                username = input("Введите имя пользователя: ")
-                private_key_path = next((entry["private_key_path"] for entry in data if entry["username"] == username), None)
-
-                if not private_key_path:
-                    print(f"Приватный ключ для пользователя '{username}' не найден в JSON файле.")
-                    continue
-
                 encrypted_message = input("Введите зашифрованный текст (hex): ")
-                decrypted_message = decrypt_message_choice(private_key_path, encrypted_message)
+                decrypted_message = decrypt_message_choice(json_file, encrypted_message)
                 if decrypted_message:
                     print(f"Расшифрованный текст: {decrypted_message}")
 
@@ -331,4 +429,5 @@ def main():
                 print("Неверный выбор. Пожалуйста, выберите от 1 до 9.")
 
 if __name__ == "__main__":
+    prompt_add_found_keys()
     main()
