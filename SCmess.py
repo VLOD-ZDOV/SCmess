@@ -133,17 +133,49 @@ def find_public_key(username):
     return None
 
 # Добавление ключа друга в JSON
-def scan_for_public_keys():
-    """Сканирует папку загрузок на наличие файлов с публичными ключами и предлагает добавить их."""
-    if 'ANDROID_ROOT' in os.environ:  # Termux на Android
-        download_dir = '/sdcard/Download'
-    else:  # Windows
-        download_dir = os.path.join(os.environ['USERPROFILE'], 'Downloads')
+# Пользовательские директории для поиска ключей
+if os.name == 'nt':  # Windows
+    CUSTOM_DIRECTORIES = [
+        os.path.join(os.environ['USERPROFILE'], 'Desktop'),  # Пример: рабочий стол Windows
+        os.path.join(os.environ['USERPROFILE'], 'Documents')  # Пример: документы Windows
+    ]
+elif 'ANDROID_ROOT' in os.environ:  # Termux на Android
+    CUSTOM_DIRECTORIES = [
+        '/data/data/com.termux/files/home/custom_keys',  # мб сюда можно их копировать
+        '/sdcard/Download/Telegram'  #папка сохраненок тг
+    ]
 
+else:  # Другие платформы
+    CUSTOM_DIRECTORIES = [
+        os.path.expanduser("~/Desktop"),  # Пример: рабочий стол в других Unix-подобных системах
+        os.path.expanduser("~/Documents")  # Пример: документы в других Unix-подобных системах
+    ]
+
+def scan_for_public_keys(custom_dirs=None):
+    """Сканирует стандартные и дополнительные папки на наличие файлов с публичными ключами."""
     found_keys = []
-    for filename in os.listdir(download_dir):
-        if filename.endswith('.pem') and 'pub' in filename:
-            found_keys.append(os.path.join(download_dir, filename))
+
+    # Определяем стандартные директории для поиска
+    if 'ANDROID_ROOT' in os.environ:  # Termux на Android
+        standard_dirs = ['/sdcard/Download']
+        custom_dirs = custom_dirs or CUSTOM_DIRECTORIES
+    else:  # Windows или другие ОС
+        standard_dirs = [os.path.join(os.environ['USERPROFILE'], 'Downloads')] if os.name == 'nt' else [os.path.expanduser("~/Downloads")]
+        custom_dirs = custom_dirs or CUSTOM_DIRECTORIES
+
+    # Поиск ключей в стандартных директориях
+    for dir_path in standard_dirs:
+        if os.path.exists(dir_path):
+            for filename in os.listdir(dir_path):
+                if filename.endswith('.pem') and 'pub' in filename:
+                    found_keys.append(os.path.join(dir_path, filename))
+
+    # Поиск ключей в пользовательских директориях
+    for dir_path in custom_dirs:
+        if os.path.exists(dir_path):
+            for filename in os.listdir(dir_path):
+                if filename.endswith('.pem') and 'pub' in filename:
+                    found_keys.append(os.path.join(dir_path, filename))
 
     return found_keys
 
@@ -151,7 +183,7 @@ def prompt_add_found_keys(json_file="keys.json"):
     """Предлагает пользователю добавить найденные публичные ключи в JSON файл."""
     found_keys = scan_for_public_keys()
     if not found_keys:
-        print("Публичные ключи не найдены в папке загрузок.")
+        print("Публичные ключи не найдены в стандартных и пользовательских папках.")
         return
 
     for key_path in found_keys:
@@ -161,7 +193,6 @@ def prompt_add_found_keys(json_file="keys.json"):
         add = input(f"Добавить ключ пользователя '{username}'? (y/n): ")
         if add.lower() == 'y':
             add_friend_public_key(username, key_path, json_file)
-
 def add_friend_public_key(username, friend_pub_key_path, json_file="keys.json"):
     """Добавляет публичный ключ друга в JSON файл."""
     friend_key_data = {
@@ -327,7 +358,7 @@ def decrypt_file_rsa_aes(private_key_path, encrypted_file_path):
 
     print(f"Файл успешно расшифрован и сохранен как '{decrypted_file_path}'.")
 def print_menu():
-    print("Меню:\n1. Создать RSA ключи и сохранить в JSON файл\n2. Шифровать текст\n3. Расшифровать текст\n4. Зашифровать файл\n5. Расшифровать файл\n6. Добавить публичный ключ друга\n7. Удалить пользователя из JSON файла\n8. Показать всех пользователей\n9. Выход")
+    print("Меню:\n1. Создать RSA ключи и сохранить в JSON файл\n2. Шифровать текст\n3. Расшифровать текст\n4. Зашифровать файл\n5. Расшифровать файл\n6. Добавить публичный ключ друга\n7. Удалить пользователя из JSON файла\n8. Показать всех пользователей\n9. Автоскан ключей\n0. Выход")
 
 # Основная функция
 def main():
@@ -366,7 +397,7 @@ def main():
                     for entry in data:
                         print(entry["username"])
 
-                encrypted_message = input("Введите зашифрованный текст (hex): ")
+                encrypted_message = input("Введите зашифрованный текст: ")
                 decrypted_message = decrypt_message_choice(json_file, encrypted_message)
                 if decrypted_message:
                     print(f"Расшифрованный текст: {decrypted_message}")
@@ -422,12 +453,15 @@ def main():
                         print(f"Имя пользователя: {entry['username']}, Путь к публичному ключу: {entry['public_key_path']}, Путь к приватному ключу: {entry['private_key_path']}")
 
             elif choice == "9":
+                prompt_add_found_keys()
+
+            elif choice == "0":
                 print("Выход из программы.")
                 break
 
             else:
-                print("Неверный выбор. Пожалуйста, выберите от 1 до 9.")
+                print("Неверный выбор. Пожалуйста, выберите от 0 до 9.")
 
 if __name__ == "__main__":
-    prompt_add_found_keys()
+    #prompt_add_found_keys()
     main()
