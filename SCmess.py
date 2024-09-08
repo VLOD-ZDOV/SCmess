@@ -598,7 +598,7 @@ def encrypt_text_rsa_aes_gcm(public_key_path, text):
         )
     )
 
-    # Кодирование всех частей в base64 для удобной передачи
+    # Создание словаря с зашифрованными данными
     encrypted_data = {
         'aes_key': base64.b64encode(encrypted_aes_key).decode('utf-8'),
         'iv': base64.b64encode(iv).decode('utf-8'),
@@ -606,11 +606,35 @@ def encrypt_text_rsa_aes_gcm(public_key_path, text):
         'ciphertext': base64.b64encode(ciphertext).decode('utf-8')
     }
 
+    # Форматирование словаря в строку для удобного копирования и вставки
+    formatted_output = f"{{'aes_key': '{encrypted_data['aes_key']}', 'iv': '{encrypted_data['iv']}', 'tag': '{encrypted_data['tag']}', 'ciphertext': '{encrypted_data['ciphertext']}'}}"
+
+    print("\nСкопируйте следующий блок для использования в функции дешифрования:")
+    print(formatted_output)
+    
     return encrypted_data
 """АФИГЕТЬ 600 строк!!!"""
 #605 строка
-def decrypt_text_rsa_aes_gcm(private_key_path, encrypted_data):
-    """Расшифровка текста с использованием RSA + AES-GCM."""
+def decrypt_text_rsa_aes_gcm(json_file, encrypted_data):
+    """Функция для выбора пользователя и расшифровки текста с использованием RSA + AES-GCM."""
+    with open(json_file, 'r') as file:
+        data = json.load(file)
+        print("Доступные пользователи для расшифровки:")
+        # Отфильтруем пользователей, у которых есть приватный ключ
+        valid_users = [entry for entry in data if entry.get("private_key_path")]
+        for idx, entry in enumerate(valid_users):
+            print(f"{idx + 1}. {entry['username']}")
+
+    # Запрос выбора пользователя
+    choice_user = int(input("Выберите пользователя (введите номер): ")) - 1
+
+    if choice_user < 0 or choice_user >= len(valid_users):
+        print("Неверный выбор.")
+        return
+
+    user_data = valid_users[choice_user]
+    private_key_path = user_data['private_key_path']
+
     # Декодирование данных из base64
     encrypted_aes_key = base64.b64decode(encrypted_data['aes_key'])
     iv = base64.b64decode(encrypted_data['iv'])
@@ -762,31 +786,17 @@ def main():
 
             # Шифрование текста с использованием AES-GCM
             encrypted_data = encrypt_text_rsa_aes_gcm(public_key_path, text_to_encrypt)
-            
-            print("Зашифрованные данные (AES-GCM):")
-            print(f"AES ключ (зашифрованный): {encrypted_data['aes_key']}")
-            print(f"IV: {encrypted_data['iv']}")
-            print(f"Тег аутентификации: {encrypted_data['tag']}")
-            print(f"Зашифрованный текст: {encrypted_data['ciphertext']}")
-
         elif choice == "11":
-            print("Доступные пользователи для расшифровки текста:")
-            with open(json_file, 'r') as file:
-                data = json.load(file)
-                for entry in data:
-                    print(entry["username"])
-
-            username = input("Введите имя пользователя: ")
-            private_key_path = next((entry["private_key_path"] for entry in data if entry["username"] == username), None)
-
-            if not private_key_path:
-                print(f"Приватный ключ для пользователя '{username}' не найден в JSON файле.")
-                continue
-
-            encrypted_message = eval(input("Введите зашифрованные данные (как словарь): "))
-            decrypted_message = decrypt_text_rsa_aes_gcm(private_key_path, encrypted_message)
-            if decrypted_message:
-                print(f"Расшифрованный текст: {decrypted_message}")
+            # Ввод данных для расшифровки
+            encrypted_data_str = input("Введите зашифрованные данные (как словарь): ")
+            
+            # Преобразование строки в словарь
+            encrypted_data = eval(encrypted_data_str)
+            
+            # Расшифровка текста с использованием RSA + AES-GCM
+            decrypted_text = decrypt_text_rsa_aes_gcm(json_file, encrypted_data)
+            if decrypted_text:
+                print(f"Расшифрованный текст: {decrypted_text}")
         elif choice == "12":
             print("Доступные пользователи для шифрования файла:")
             with open(json_file, 'r') as file:
