@@ -6,8 +6,7 @@ import base64
 import os
 import json
 from datetime import datetime
-# Определение пути к директории "Загрузки" в зависимости от платформы
-
+# Мусорная функция, но пока убрать лень
 def get_download_directory():
     if os.name == 'nt':  # Windows
         return os.path.join(os.environ['USERPROFILE'], 'Downloads')
@@ -262,12 +261,19 @@ def decrypt_message_choice(json_file, encrypted_message_base64):
     with open(json_file, 'r') as file:
         data = json.load(file)
         print("Доступные пользователи для расшифровки:")
-        for idx, entry in enumerate(data):
+        # Отфильтруем пользователей, у которых есть приватный ключ
+        valid_users = [entry for entry in data if entry.get("private_key_path")]
+        for idx, entry in enumerate(valid_users):
             print(f"{idx + 1}. {entry['username']}")
 
+    # Запрос выбора пользователя
     choice = int(input("Выберите пользователя (введите номер): ")) - 1
-    user_data = data[choice]
 
+    if choice < 0 or choice >= len(valid_users):
+        print("Неверный выбор.")
+        return
+
+    user_data = valid_users[choice]
     private_key_path = user_data['private_key_path']
 
     # Декодируем сообщение из base64 в байты
@@ -294,7 +300,7 @@ def decrypt_message_choice(json_file, encrypted_message_base64):
     return decrypted_message.decode('utf-8')
 
 def encrypt_message(public_key_path, message):
-    """Шифрование сообщения с использованием публичного ключа RSA и кодирование в base64."""
+    """Шифрование сообщения с использованием публичного ключа RSA."""
     # Загрузка публичного ключа
     with open(public_key_path, 'rb') as pub_file:
         public_key = serialization.load_pem_public_key(pub_file.read(), backend=default_backend())
@@ -597,7 +603,7 @@ def encrypt_text_rsa_aes_gcm(public_key_path, text):
         'aes_key': base64.b64encode(encrypted_aes_key).decode('utf-8'),
         'iv': base64.b64encode(iv).decode('utf-8'),
         'tag': base64.b64encode(encryptor.tag).decode('utf-8'),
-        'ciphertext': base64.b64encode(ciphertext).decode('utf-8')         
+        'ciphertext': base64.b64encode(ciphertext).decode('utf-8')
     }
 
     return encrypted_data
@@ -653,23 +659,33 @@ def main():
             save_keys_to_json(username, pub_filename, priv_filename, json_file)
 
         elif choice == "2":
+            # Запрос текста для шифрования
+            print("Введите текст для шифрования:")
+            text_to_encrypt = input()
+
+            # Вывод списка пользователей
             print("Доступные пользователи для шифрования:")
             with open(json_file, 'r') as file:
                 data = json.load(file)
-                for entry in data:
-                    print(entry["username"])
+                valid_users = [entry for entry in data if entry.get("public_key_path")]
+                for idx, entry in enumerate(valid_users):
+                    print(f"{idx + 1}. {entry['username']}")
 
-            username = input("Введите имя пользователя: ")
-            public_key_path = next((entry["public_key_path"] for entry in data if entry["username"] == username), None)
+            # Запрос номера пользователя
+            choice_user = int(input("Выберите пользователя (введите номер): ")) - 1
 
-            if not public_key_path:
-                print(f"Публичный ключ для пользователя '{username}' не найден в JSON файле.")
+            if choice_user < 0 or choice_user >= len(valid_users):
+                print("Неверный выбор.")
                 continue
 
-            text_to_encrypt = input("Введите текст для шифрования: ")
+            user_data = valid_users[choice_user]
+            public_key_path = user_data['public_key_path']
+
+            # Шифрование текста с использованием RSA
             encrypted_message = encrypt_message(public_key_path, text_to_encrypt)
             print(f"Зашифрованный текст: {encrypted_message}")
 
+       
         elif choice == "3":
             print("Доступные пользователи для расшифровки:")
             with open(json_file, 'r') as file:
@@ -722,22 +738,36 @@ def main():
         elif choice == "9":
             prompt_add_found_keys()
         elif choice == "10":
+            # Запрос текста для шифрования
+            print("Введите текст для шифрования:")
+            text_to_encrypt = input()
+
+            # Вывод списка пользователей
             print("Доступные пользователи для шифрования текста:")
             with open(json_file, 'r') as file:
                 data = json.load(file)
-                for entry in data:
-                    print(entry["username"])
+                valid_users = [entry for entry in data if entry.get("public_key_path")]
+                for idx, entry in enumerate(valid_users):
+                    print(f"{idx + 1}. {entry['username']}")
 
-            username = input("Введите имя пользователя: ")
-            public_key_path = next((entry["public_key_path"] for entry in data if entry["username"] == username), None)
+            # Запрос номера пользователя
+            choice_user = int(input("Выберите пользователя (введите номер): ")) - 1
 
-            if not public_key_path:
-                print(f"Публичный ключ для пользователя '{username}' не найден в JSON файле.")
+            if choice_user < 0 or choice_user >= len(valid_users):
+                print("Неверный выбор.")
                 continue
 
-            text_to_encrypt = input("Введите текст для шифрования: ")
-            encrypted_message = encrypt_text_rsa_aes_gcm(public_key_path, text_to_encrypt)
-            print(f"Зашифрованный текст: {encrypted_message}")
+            user_data = valid_users[choice_user]
+            public_key_path = user_data['public_key_path']
+
+            # Шифрование текста с использованием AES-GCM
+            encrypted_data = encrypt_text_rsa_aes_gcm(public_key_path, text_to_encrypt)
+            
+            print("Зашифрованные данные (AES-GCM):")
+            print(f"AES ключ (зашифрованный): {encrypted_data['aes_key']}")
+            print(f"IV: {encrypted_data['iv']}")
+            print(f"Тег аутентификации: {encrypted_data['tag']}")
+            print(f"Зашифрованный текст: {encrypted_data['ciphertext']}")
 
         elif choice == "11":
             print("Доступные пользователи для расшифровки текста:")
