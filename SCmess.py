@@ -6,7 +6,7 @@ import base64
 import os
 import json
 from datetime import datetime
-# Мусорная функция, но пока убрать лень
+# Мусорная функция, надеюсь перейду к нормльной SEARCH_DIRECTORIES
 def get_download_directory():
     if os.name == 'nt':  # Windows
         return os.path.join(os.environ['USERPROFILE'], 'Downloads')
@@ -40,17 +40,7 @@ def get_public_key_directory():
     else:  # Другие платформы
         return os.path.expanduser("~")
 
-def find_public_key(username):
-    """Ищет публичный ключ в папке загрузок на платформе Android или Windows."""
-    if 'ANDROID_ROOT' in os.environ:  # Termux на Android
-        download_dir = '/sdcard/Download'
-    else:
-        download_dir = get_download_directory()
 
-    for filename in os.listdir(download_dir):
-        if filename.startswith(f"RSA_{username}_pub_") and filename.endswith(".pem"):
-            return os.path.join(download_dir, filename)
-    return None
 
 def generate_key_pair(username):
     """Генерация пары ключей RSA с использованием имени пользователя и текущей даты."""
@@ -67,7 +57,7 @@ def generate_key_pair(username):
     # Генерация приватного ключа
     private_key = rsa.generate_private_key(
         public_exponent=65537,
-        key_size=2048,
+        key_size=4096,
         backend=default_backend()
     )
 
@@ -125,12 +115,7 @@ def save_keys_to_json(username, pub_filename, priv_filename, json_file="keys.jso
         with open(json_file, 'w') as file:
             json.dump([key_data], file, indent=4)
 # Поиск публичного ключа в директории "Загрузки"
-def find_public_key(username):
-    download_dir = get_download_directory()
-    for filename in os.listdir(download_dir):
-        if filename.startswith(f"RSA_{username}_to_") and filename.endswith("_pub.pem"):
-            return os.path.join(download_dir, filename)
-    return None
+
 
 # Добавление ключа друга в JSON
 # Общие директории для поиска ключей и зашифрованных файлов
@@ -145,7 +130,7 @@ if 'ANDROID_ROOT' in os.environ:  # Termux на Android
         '/data/data/com.termux/files/home/custom_keys',  # Пример: пользовательская папка в Termux
         '/sdcard/CustomKeys',  # Пример: пользовательская папка на Android
         '/sdcard/Download',  # Папка загрузок
-        '/sdcard/Telegram/Telegram Documents',  # Папка Telegram
+        '/sdcard/Download/Telegram/',  # Папка Telegram
         '/sdcard/WhatsApp/Media/WhatsApp Documents'  # Папка WhatsApp
     ]
 else:  # Другие платформы
@@ -154,19 +139,7 @@ else:  # Другие платформы
         os.path.expanduser("~/Documents"),
         os.path.expanduser("~/Downloads")
     ]
-# Предустановленные директории для поиска зашифрованных файлов
-"""
-DEFAULT_DIRECTORIES = {
-    'windows': [
-        os.path.join(os.environ['USERPROFILE'], 'Downloads')
-    ],
-    'termux': [
-        '/sdcard/Download',
-        '/sdcard/Telegram/Telegram Documents',
-        '/sdcard/WhatsApp/Media/WhatsApp Documents'
-    ]
-}
-"""
+
 def scan_for_public_keys(custom_dirs=None):
     """Сканирует стандартные и дополнительные папки на наличие файлов с публичными ключами."""
     found_keys = []
@@ -209,38 +182,39 @@ def prompt_add_found_keys(json_file="keys.json"):
         add = input(f"Добавить ключ пользователя '{username}'? (y/n): ")
         if add.lower() == 'y':
             add_friend_public_key(username, key_path, json_file)
-def add_friend_public_key(username, friend_pub_key_path, json_file="keys.json"):
-    """Добавляет публичный ключ друга в JSON файл."""
-    friend_key_data = {
-        "username": username,
-        "public_key_path": friend_pub_key_path,
-        "private_key_path": None
-    }
+def add_friend_key(username, key_path, key_type, json_file):
+    """
+    Функция для добавления публичного или приватного ключа пользователя.
+    key_type должен быть 'public' или 'private'.
+    """
+    if key_type not in ['public', 'private']:
+        print("Неверный тип ключа. Укажите 'public' или 'private'.")
+        return
 
-    if os.path.exists(json_file):
-        with open(json_file, 'r+') as file:
-            try:
-                data = json.load(file)
+    # Чтение существующих данных из JSON
+    with open(json_file, 'r') as file:
+        data = json.load(file)
 
-                # Если данные в JSON не являются списком, преобразуем их в список
-                if isinstance(data, dict):
-                    data = [data]
-                elif not isinstance(data, list):
-                    raise ValueError("Неверный формат JSON файла: ожидается список.")
+    # Поиск пользователя
+    user_entry = next((entry for entry in data if entry['username'] == username), None)
 
-            except json.JSONDecodeError:
-                # Если файл пуст или поврежден, создаем новый список
-                data = []
+    if not user_entry:
+        # Создаем новую запись, если пользователя нет
+        user_entry = {'username': username}
+        data.append(user_entry)
 
-            data.append(friend_key_data)
-            file.seek(0)
-            json.dump(data, file, indent=4)
-    else:
-        # Если JSON-файл не существует, создаем новый файл со списком ключей
-        with open(json_file, 'w') as file:
-            json.dump([friend_key_data], file, indent=4)
+    # Добавление пути к ключу в зависимости от типа
+    if key_type == 'public':
+        user_entry['public_key_path'] = key_path
+        print(f"Публичный ключ для '{username}' добавлен.")
+    elif key_type == 'private':
+        user_entry['private_key_path'] = key_path
+        print(f"Приватный ключ для '{username}' добавлен.")
 
-    print(f"Публичный ключ пользователя '{username}' успешно добавлен в JSON файл.")
+    # Сохранение обновленных данных в JSON
+    with open(json_file, 'w') as file:
+        json.dump(data, file, indent=4)
+
 
 def delete_user_from_json(username, json_file="keys.json"):
     if os.path.exists(json_file):
@@ -256,12 +230,36 @@ def delete_user_from_json(username, json_file="keys.json"):
         print(f"JSON файл '{json_file}' не существует.")
 
 # Функция расшифровки с выбором ключа
-def decrypt_message_choice(json_file, encrypted_message_base64):
-    """Функция для расшифровки сообщения с выбором ключа и использованием base64."""
+
+def print_menu():
+    """Функция для вывода меню."""
+    menu = """
+    Пожалуйста, выберите действие:
+
+    1. Создать пару ключей и сохранить в JSON
+    2. Зашифровать текст с использованием RSA
+    3. Расшифровать текст с использованием RSA
+    4. Зашифровать текст с использованием AES-GCM
+    5. Расшифровать текст с использованием AES-GCM
+    6. Зашифровать файл с использованием RSA
+    7. Расшифровать файл с использованием RSA
+    8. Зашифровать файл с использованием AES-GCM
+    9. Расшифровать файл с использованием AES-GCM
+    10. Добавить публичный или приватный ключ
+    11. Показать всех пользователей
+    12. Удалить пользователя из JSON файла
+    13. Автоскан ключей
+    0. Выйти из программы
+    """
+    print(menu)
+
+
+
+def get_user_to_decrypt(json_file):
+    """Функция для выбора пользователя с приватным ключом для расшифровки."""
     with open(json_file, 'r') as file:
         data = json.load(file)
-        print("Доступные пользователи для расшифровки:")
-        # Отфильтруем пользователей, у которых есть приватный ключ
+        # Отфильтровываем пользователей, у которых есть приватный ключ
         valid_users = [entry for entry in data if entry.get("private_key_path")]
         for idx, entry in enumerate(valid_users):
             print(f"{idx + 1}. {entry['username']}")
@@ -271,306 +269,50 @@ def decrypt_message_choice(json_file, encrypted_message_base64):
 
     if choice < 0 or choice >= len(valid_users):
         print("Неверный выбор.")
-        return
+        return None, None
 
-    user_data = valid_users[choice]
-    private_key_path = user_data['private_key_path']
-
-    # Декодируем сообщение из base64 в байты
-    encrypted_message_bytes = base64.b64decode(encrypted_message_base64)
-
-    # Загрузка приватного ключа
-    with open(private_key_path, 'rb') as priv_file:
-        private_key = serialization.load_pem_private_key(
-            priv_file.read(),
-            password=None,
-            backend=default_backend()
-        )
-
-    # Расшифровка сообщения с использованием приватного ключа
-    decrypted_message = private_key.decrypt(
-        encrypted_message_bytes,
-        padding.OAEP(
-            mgf=padding.MGF1(algorithm=hashes.SHA256()),
-            algorithm=hashes.SHA256(),
-            label=None
-        )
-    )
-
-    return decrypted_message.decode('utf-8')
-
-def encrypt_message(public_key_path, message):
-    """Шифрование сообщения с использованием публичного ключа RSA."""
-    # Загрузка публичного ключа
-    with open(public_key_path, 'rb') as pub_file:
-        public_key = serialization.load_pem_public_key(pub_file.read(), backend=default_backend())
-
-    # Шифрование сообщения с использованием RSA и OAEP
-    encrypted = public_key.encrypt(
-        message.encode(),  # Преобразуем строку в байты
-        padding.OAEP(
-            mgf=padding.MGF1(algorithm=hashes.SHA256()),
-            algorithm=hashes.SHA256(),
-            label=None
-        )
-    )
-
-    # Кодирование зашифрованного сообщения в base64
-    encrypted_base64 = base64.b64encode(encrypted).decode('utf-8')
-
-    return encrypted_base64
-def encrypt_file_rsa_aes(public_key_path, file_path):
-    # Генерация случайного ключа для AES
-    aes_key = os.urandom(32)
-    aes_iv = os.urandom(16)
-
-    # Шифрование файла AES
-    with open(file_path, 'rb') as file:
-        plaintext = file.read()
-
-    cipher_aes = Cipher(algorithms.AES(aes_key), modes.CFB(aes_iv), backend=default_backend())
-    encryptor = cipher_aes.encryptor()
-    ciphertext = encryptor.update(plaintext) + encryptor.finalize()
-
-    # Шифрование AES ключа с использованием RSA
-    with open(public_key_path, 'rb') as pub_file:
-        public_key = serialization.load_pem_public_key(pub_file.read(), backend=default_backend())
-
-    encrypted_aes_key = public_key.encrypt(
-        aes_key,
-        padding.OAEP(
-            mgf=padding.MGF1(algorithm=hashes.SHA256()),
-            algorithm=hashes.SHA256(),
-            label=None
-        )
-    )
-
-    # Сохранение зашифрованного файла и ключа
-    encrypted_file_path = f"{file_path}.enc"
-    with open(encrypted_file_path, 'wb') as file:
-        file.write(encrypted_aes_key)
-        file.write(aes_iv)
-        file.write(ciphertext)
-
-    print(f"Файл успешно зашифрован и сохранен как '{encrypted_file_path}'.")
-
-def scan_for_encrypted_files(custom_dir=None):
-    """Сканирует стандартные и дополнительные папки на наличие файлов с расширением .enc."""
-    found_files = []
-
-    # Определяем стандартные директории для поиска
-    if 'ANDROID_ROOT' in os.environ:  # Termux на Android
-        standard_dirs = [ 
-            '/sdcard/Download', 
-            '/sdcard/Telegram/Telegram Documents', 
-            '/sdcard/WhatsApp/Media/WhatsApp Documents'
-        ]
-    else:  # Windows или другие ОС
-        standard_dirs = [
-            os.path.join(os.environ.get('USERPROFILE', ''), 'Downloads')
-        ]
-
-    # Если указана пользовательская директория, добавляем ее в список
-    if custom_dir:
-        standard_dirs.append(custom_dir)
-
-    # Поиск файлов с расширением .enc в стандартных и пользовательских директориях
-    for dir_path in standard_dirs:
-        if os.path.exists(dir_path):
-            for filename in os.listdir(dir_path):
-                if filename.endswith('.enc'):
-                    found_files.append(os.path.join(dir_path, filename))
-
-    return found_files
-
-def prompt_decrypt_file_choice(json_file="keys.json"):
-    """Предлагает пользователю выбрать файл для дешифрования из найденных .enc файлов."""
-    custom_dir = input("Введите путь к папке для поиска зашифрованных файлов (или оставьте пустым для использования стандартных директорий): ").strip()
-    found_files = scan_for_encrypted_files(custom_dir if custom_dir else None)
-
-    if not found_files:
-        print("Зашифрованные файлы (.enc) не найдены в указанных папках.")
-        return
-
-    print("Найденные зашифрованные файлы:")
-    for idx, file_path in enumerate(found_files):
-        print(f"{idx + 1}. {file_path}")
-
-    choice = int(input("Выберите файл для расшифровки (введите номер): ")) - 1
-    if choice < 0 or choice >= len(found_files):
-        print("Неверный выбор.")
-        return
-
-    selected_file = found_files[choice]
-    print(f"Выбран файл для расшифровки: {selected_file}")
-
-    print("Доступные пользователи для расшифровки файла:")
+    return valid_users[choice]['private_key_path'], valid_users[choice]
+def get_user_to_encrypt(json_file):
+    """Функция для выбора пользователя с публичным ключом для шифрования."""
     with open(json_file, 'r') as file:
         data = json.load(file)
-        for entry in data:
-            print(entry["username"])
+        # Отфильтровываем пользователей, у которых есть публичный ключ
+        valid_users = [entry for entry in data if entry.get("public_key_path")]
+        for idx, entry in enumerate(valid_users):
+            print(f"{idx + 1}. {entry['username']}")
 
-    username = input("Введите имя пользователя: ")
-    private_key_path = next((entry["private_key_path"] for entry in data if entry["username"] == username), None)
+    # Запрос выбора пользователя
+    choice = int(input("Выберите пользователя (введите номер): ")) - 1
 
-    if not private_key_path:
-        print(f"Приватный ключ для пользователя '{username}' не найден в JSON файле.")
-        return
+    if choice < 0 or choice >= len(valid_users):
+        print("Неверный выбор.")
+        return None, None
 
-    decrypt_file_rsa_aes(private_key_path, selected_file)
-
-def decrypt_file_rsa_aes(private_key_path, encrypted_file_path):
-    """Расшифровка файла с использованием RSA + AES."""
-    # Чтение зашифрованного файла
-    with open(encrypted_file_path, 'rb') as file:
-        encrypted_aes_key = file.read(256)  # Длина зашифрованного ключа RSA
-        aes_iv = file.read(16)
-        ciphertext = file.read()
-
-    # Чтение приватного ключа RSA
-    with open(private_key_path, 'rb') as priv_file:
-        private_key = serialization.load_pem_private_key(
-            priv_file.read(),
-            password=None,
-            backend=default_backend()
-        )
-
-    # Расшифровка AES ключа с использованием RSA
-    aes_key = private_key.decrypt(
-        encrypted_aes_key,
-        padding.OAEP(
-            mgf=padding.MGF1(algorithm=hashes.SHA256()),
-            algorithm=hashes.SHA256(),
-            label=None
-        )
-    )
-
-    # Расшифровка текста с использованием AES
-    cipher_aes = Cipher(algorithms.AES(aes_key), modes.CFB(aes_iv), backend=default_backend())
-    decryptor = cipher_aes.decryptor()
-    decrypted_text = decryptor.update(ciphertext) + decryptor.finalize()
-
-    # Сохранение расшифрованного файла без расширения .enc
-    decrypted_file_path = encrypted_file_path[:-4]
-    with open(decrypted_file_path, 'wb') as file:
-        file.write(decrypted_text)
-
-    print(f"Файл успешно расшифрован и сохранен как '{decrypted_file_path}'.")
-def scan_for_files(file_extension, custom_dir=None):
-    """Сканирует стандартные и дополнительные папки на наличие файлов с заданным расширением."""
-    found_files = []
-
-    # Добавляем пользовательскую директорию, если она указана
-    directories_to_search = SEARCH_DIRECTORIES[:]
-    if custom_dir:
-        directories_to_search.append(custom_dir)
-
-    # Поиск файлов с указанным расширением
-    for dir_path in directories_to_search:
-        if os.path.exists(dir_path):
-            for filename in os.listdir(dir_path):
-                if filename.endswith(file_extension):
-                    found_files.append(os.path.join(dir_path, filename))
-
-    return found_files
-def print_menu():
-    print("Меню:\n1. Создать RSA ключи и сохранить в JSON файл\n2. Шифровать текст\n3. Расшифровать текст\n4. Зашифровать файл\n5. Расшифровать файл\n6. Добавить публичный ключ друга\n7. Удалить пользователя из JSON файла\n8. Показать всех пользователей\n9. Автоскан ключей\n10. Экспериментальное шифрование(GCM)\n11. Экспериментальное дешифрование(GCM)\n12. Экспериментальное шифрование(GCM) файлов\n13. Экспериментальное дешифрование(GCM) файлов\n0. Выход")
+    return valid_users[choice]['public_key_path'], valid_users[choice]
+    
 
 
+def get_multiline_input():
+    """Функция для получения многолинейного ввода текста от пользователя."""
+    print("Введите ваш текст (нажмите Ctrl-D для Linux/Mac/Termux или Ctrl-Z для Windows для завершения ввода):")
+    
+    # Считывание текста построчно
+    contents = []
+    while True:
+        try:
+            line = input()
+        except EOFError:
+            break
+        contents.append(line)
+    
+    # Объединение строк в единый текст
+    return "\n".join(contents)
 
-
-def encrypt_file_rsa_aes_gcm(public_key_path, file_path):
-    """Шифрование файла с использованием RSA + AES-GCM."""
-    # Генерация случайного ключа для AES
-    aes_key = os.urandom(32)  # 256-битный ключ для AES
-    iv = os.urandom(12)  # Рекомендуемый размер для GCM IV - 96 бит (12 байт)
-
-    # Шифрование файла с использованием AES-GCM
-    with open(file_path, 'rb') as file:
-        plaintext = file.read()
-
-    # Создание шифра AES-GCM
-    encryptor = Cipher(
-        algorithms.AES(aes_key),
-        modes.GCM(iv),
-        backend=default_backend()
-    ).encryptor()
-
-    ciphertext = encryptor.update(plaintext) + encryptor.finalize()
-
-    # Шифрование AES ключа с использованием RSA
-    with open(public_key_path, 'rb') as pub_file:
-        public_key = serialization.load_pem_public_key(pub_file.read(), backend=default_backend())
-
-    encrypted_aes_key = public_key.encrypt(
-        aes_key,
-        padding.OAEP(
-            mgf=padding.MGF1(algorithm=hashes.SHA256()),
-            algorithm=hashes.SHA256(),
-            label=None
-        )
-    )
-
-    # Сохранение зашифрованного файла и ключа
-    encrypted_file_path = f"{file_path}.enc"
-    with open(encrypted_file_path, 'wb') as file:
-        file.write(encrypted_aes_key)
-        file.write(iv)
-        file.write(encryptor.tag)  # Сохранение тега аутентификации
-        file.write(ciphertext)
-
-    print(f"Файл успешно зашифрован и сохранен как '{encrypted_file_path}'.")
-
-
-def decrypt_file_rsa_aes_gcm(private_key_path, encrypted_file_path):
-    """Расшифровка файла с использованием RSA + AES-GCM."""
-    # Чтение зашифрованного файла
-    with open(encrypted_file_path, 'rb') as file:
-        encrypted_aes_key = file.read(256)  # Длина зашифрованного ключа RSA
-        iv = file.read(12)  # Длина IV для AES-GCM (96 бит)
-        tag = file.read(16)  # Длина тега аутентификации для AES-GCM (128 бит)
-        ciphertext = file.read()
-
-    # Чтение приватного ключа RSA
-    with open(private_key_path, 'rb') as priv_file:
-        private_key = serialization.load_pem_private_key(
-            priv_file.read(),
-            password=None,
-            backend=default_backend()
-        )
-
-    # Расшифровка AES ключа с использованием RSA
-    aes_key = private_key.decrypt(
-        encrypted_aes_key,
-        padding.OAEP(
-            mgf=padding.MGF1(algorithm=hashes.SHA256()),
-            algorithm=hashes.SHA256(),
-            label=None
-        )
-    )
-
-    # Расшифровка текста с использованием AES-GCM
-    decryptor = Cipher(
-        algorithms.AES(aes_key),
-        modes.GCM(iv, tag),
-        backend=default_backend()
-    ).decryptor()
-
-    decrypted_text = decryptor.update(ciphertext) + decryptor.finalize()
-
-    # Сохранение расшифрованного файла без расширения .enc
-    decrypted_file_path = encrypted_file_path[:-4]
-    with open(decrypted_file_path, 'wb') as file:
-        file.write(decrypted_text)
-
-    print(f"Файл успешно расшифрован и сохранен как '{decrypted_file_path}'.")
-
-
-
-
-
-def encrypt_text_rsa_aes_gcm(public_key_path, text):
+def encrypt_text_gcm(public_key_path):
     """Шифрование текста с использованием RSA + AES-GCM."""
+    # Получение текста от пользователя
+    text = get_multiline_input()
+
     # Генерация случайного ключа для AES
     aes_key = os.urandom(32)  # 256-битный ключ для AES
     iv = os.urandom(12)  # Рекомендуемый размер для GCM IV - 96 бит (12 байт)
@@ -606,35 +348,16 @@ def encrypt_text_rsa_aes_gcm(public_key_path, text):
         'ciphertext': base64.b64encode(ciphertext).decode('utf-8')
     }
 
-    # Форматирование словаря в строку для удобного копирования и вставки
+    # Вывод данных для удобного копирования и вставки
     formatted_output = f"{{'aes_key': '{encrypted_data['aes_key']}', 'iv': '{encrypted_data['iv']}', 'tag': '{encrypted_data['tag']}', 'ciphertext': '{encrypted_data['ciphertext']}'}}"
-
     print("\nСкопируйте следующий блок для использования в функции дешифрования:")
     print(formatted_output)
-    
+
     return encrypted_data
-"""АФИГЕТЬ 600 строк!!!"""
-#605 строка
-def decrypt_text_rsa_aes_gcm(json_file, encrypted_data):
-    """Функция для выбора пользователя и расшифровки текста с использованием RSA + AES-GCM."""
-    with open(json_file, 'r') as file:
-        data = json.load(file)
-        print("Доступные пользователи для расшифровки:")
-        # Отфильтруем пользователей, у которых есть приватный ключ
-        valid_users = [entry for entry in data if entry.get("private_key_path")]
-        for idx, entry in enumerate(valid_users):
-            print(f"{idx + 1}. {entry['username']}")
 
-    # Запрос выбора пользователя
-    choice_user = int(input("Выберите пользователя (введите номер): ")) - 1
 
-    if choice_user < 0 or choice_user >= len(valid_users):
-        print("Неверный выбор.")
-        return
-
-    user_data = valid_users[choice_user]
-    private_key_path = user_data['private_key_path']
-
+def decrypt_text_gcm(private_key_path, encrypted_data):
+    """Расшифровка текста с использованием RSA + AES-GCM."""
     # Декодирование данных из base64
     encrypted_aes_key = base64.b64decode(encrypted_data['aes_key'])
     iv = base64.b64decode(encrypted_data['iv'])
@@ -670,12 +393,222 @@ def decrypt_text_rsa_aes_gcm(json_file, encrypted_data):
 
     return decrypted_text.decode('utf-8')
 
+
+
+def encrypt_text(public_key_path, text):
+    """Шифрование текста с использованием публичного ключа RSA."""
+    # Загрузка публичного ключа
+    with open(public_key_path, 'rb') as pub_file:
+        public_key = serialization.load_pem_public_key(pub_file.read(), backend=default_backend())
+
+    # Шифрование текста с использованием RSA и OAEP
+    encrypted = public_key.encrypt(
+        text.encode(),
+        padding.OAEP(
+            mgf=padding.MGF1(algorithm=hashes.SHA256()),
+            algorithm=hashes.SHA256(),
+            label=None
+        )
+    )
+
+    # Кодирование зашифрованного текста в base64
+    encrypted_base64 = base64.b64encode(encrypted).decode('utf-8')
+
+    return encrypted_base64
+
+def decrypt_text(private_key_path, encrypted_message):
+    """Расшифровка текста с использованием приватного ключа RSA."""
+    # Декодирование зашифрованного сообщения из base64
+    encrypted_message_bytes = base64.b64decode(encrypted_message)
+
+    # Чтение приватного ключа RSA
+    with open(private_key_path, 'rb') as priv_file:
+        private_key = serialization.load_pem_private_key(
+            priv_file.read(),
+            password=None,
+            backend=default_backend()
+        )
+
+    # Расшифровка сообщения с использованием приватного ключа RSA
+    decrypted_message = private_key.decrypt(
+        encrypted_message_bytes,
+        padding.OAEP(
+            mgf=padding.MGF1(algorithm=hashes.SHA256()),
+            algorithm=hashes.SHA256(),
+            label=None
+        )
+    )
+
+    return decrypted_message.decode('utf-8')
+
+
+
+def encrypt_file_gcm(public_key_path, file_path):
+    """Шифрование файла с использованием RSA + AES-GCM."""
+    # Генерация случайного ключа для AES
+    aes_key = os.urandom(32)
+    iv = os.urandom(12)
+
+    # Создание шифра AES-GCM
+    encryptor = Cipher(
+        algorithms.AES(aes_key),
+        modes.GCM(iv),
+        backend=default_backend()
+    ).encryptor()
+
+    # Чтение данных из файла
+    with open(file_path, 'rb') as f:
+        plaintext = f.read()
+
+    # Шифрование данных
+    ciphertext = encryptor.update(plaintext) + encryptor.finalize()
+
+    # Шифрование AES ключа с использованием RSA
+    with open(public_key_path, 'rb') as pub_file:
+        public_key = serialization.load_pem_public_key(pub_file.read(), backend=default_backend())
+
+    encrypted_aes_key = public_key.encrypt(
+        aes_key,
+        padding.OAEP(
+            mgf=padding.MGF1(algorithm=hashes.SHA256()),
+            algorithm=hashes.SHA256(),
+            label=None
+        )
+    )
+
+    # Сохранение зашифрованных данных в файл
+    encrypted_file_path = file_path + ".enc"
+    with open(encrypted_file_path, 'wb') as f:
+        f.write(encrypted_aes_key + iv + encryptor.tag + ciphertext)
+
+    return encrypted_file_path
+
+def decrypt_file_gcm(private_key_path, encrypted_file_path):
+    """Расшифровка файла с использованием RSA + AES-GCM."""
+    # Чтение зашифрованного файла
+    with open(encrypted_file_path, 'rb') as f:
+        encrypted_aes_key = f.read(256)  # Длина зашифрованного ключа RSA
+        iv = f.read(12)
+        tag = f.read(16)
+        ciphertext = f.read()
+
+    # Чтение приватного ключа RSA
+    with open(private_key_path, 'rb') as priv_file:
+        private_key = serialization.load_pem_private_key(
+            priv_file.read(),
+            password=None,
+            backend=default_backend()
+        )
+
+    # Расшифровка AES ключа с использованием RSA
+    aes_key = private_key.decrypt(
+        encrypted_aes_key,
+        padding.OAEP(
+            mgf=padding.MGF1(algorithm=hashes.SHA256()),
+            algorithm=hashes.SHA256(),
+            label=None
+        )
+    )
+
+    # Расшифровка данных с использованием AES-GCM
+    decryptor = Cipher(
+        algorithms.AES(aes_key),
+        modes.GCM(iv, tag),
+        backend=default_backend()
+    ).decryptor()
+
+    decrypted_data = decryptor.update(ciphertext) + decryptor.finalize()
+
+    # Сохранение расшифрованного файла
+    decrypted_file_path = encrypted_file_path[:-4]  # Убираем .enc
+    with open(decrypted_file_path, 'wb') as f:
+        f.write(decrypted_data)
+
+    return decrypted_file_path
+
+
+def find_encrypted_files(directories):
+    """Функция для поиска зашифрованных файлов в указанных директориях."""
+    encrypted_files = []
+    for directory in directories:
+        for root, _, files in os.walk(directory):
+            for file in files:
+                if file.endswith('.enc'):
+                    encrypted_files.append(os.path.join(root, file))
+    return encrypted_files
+
+
+def encrypt_file(public_key_path, file_path):
+    """Шифрование файла с использованием RSA."""
+    # Чтение данных из файла
+    with open(file_path, 'rb') as f:
+        plaintext = f.read()
+
+    # Загрузка публичного ключа
+    with open(public_key_path, 'rb') as pub_file:
+        public_key = serialization.load_pem_public_key(pub_file.read(), backend=default_backend())
+
+    # Шифрование данных с использованием RSA
+    encrypted_data = public_key.encrypt(
+        plaintext,
+        padding.OAEP(
+            mgf=padding.MGF1(algorithm=hashes.SHA256()),
+            algorithm=hashes.SHA256(),
+            label=None
+        )
+    )
+
+    # Сохранение зашифрованного файла
+    encrypted_file_path = file_path + ".enc"
+    with open(encrypted_file_path, 'wb') as f:
+        f.write(encrypted_data)
+
+    return encrypted_file_path
+
+def decrypt_file(private_key_path, encrypted_file_path):
+    """Расшифровка файла с использованием RSA."""
+    # Чтение зашифрованного файла
+    with open(encrypted_file_path, 'rb') as f:
+        encrypted_data = f.read()
+
+    # Чтение приватного ключа RSA
+    with open(private_key_path, 'rb') as priv_file:
+        private_key = serialization.load_pem_private_key(
+            priv_file.read(),
+            password=None,
+            backend=default_backend()
+        )
+
+    # Расшифровка данных с использованием приватного ключа RSA
+    decrypted_data = private_key.decrypt(
+        encrypted_data,
+        padding.OAEP(
+            mgf=padding.MGF1(algorithm=hashes.SHA256()),
+            algorithm=hashes.SHA256(),
+            label=None
+        )
+    )
+
+    # Сохранение расшифрованного файла
+    decrypted_file_path = encrypted_file_path[:-4]  # Убираем .enc
+    with open(decrypted_file_path, 'wb') as f:
+        f.write(decrypted_data)
+
+    return decrypted_file_path
+
+
 # Основная функция
 def main():
     json_file = "keys.json"
+    
+    # Проверяем, существует ли файл keys.json
+    if not os.path.exists(json_file):
+        with open(json_file, 'w') as file:
+            json.dump([], file)  # Создаем пустой JSON файл
+
     while True:
         print_menu()
-        choice = input("Выберите действие (0-9): ")
+        choice = input("Выберите действие (0-13): ")
 
         if choice == "1":
             username = input("Введите имя пользователя: ")
@@ -687,148 +620,110 @@ def main():
             print("Введите текст для шифрования:")
             text_to_encrypt = input()
 
-            # Вывод списка пользователей
-            print("Доступные пользователи для шифрования:")
-            with open(json_file, 'r') as file:
-                data = json.load(file)
-                valid_users = [entry for entry in data if entry.get("public_key_path")]
-                for idx, entry in enumerate(valid_users):
-                    print(f"{idx + 1}. {entry['username']}")
+            # Получение пользователя для шифрования
+            public_key_path, _ = get_user_to_encrypt(json_file)
+            if public_key_path:
+                encrypted_message = encrypt_text(public_key_path, text_to_encrypt)
+                print(f"Зашифрованный текст: {encrypted_message}")
 
-            # Запрос номера пользователя
-            choice_user = int(input("Выберите пользователя (введите номер): ")) - 1
-
-            if choice_user < 0 or choice_user >= len(valid_users):
-                print("Неверный выбор.")
-                continue
-
-            user_data = valid_users[choice_user]
-            public_key_path = user_data['public_key_path']
-
-            # Шифрование текста с использованием RSA
-            encrypted_message = encrypt_message(public_key_path, text_to_encrypt)
-            print(f"Зашифрованный текст: {encrypted_message}")
-
-       
         elif choice == "3":
-            print("Доступные пользователи для расшифровки:")
-            with open(json_file, 'r') as file:
-                data = json.load(file)
-                for entry in data:
-                    print(entry["username"])
-
-            encrypted_message = input("Введите зашифрованный текст: ")
-            decrypted_message = decrypt_message_choice(json_file, encrypted_message)
-            if decrypted_message:
-                print(f"Расшифрованный текст: {decrypted_message}")
+            # Получение пользователя для расшифровки
+            private_key_path, _ = get_user_to_decrypt(json_file)
+            if private_key_path:
+                encrypted_message = input("Введите зашифрованный текст: ")
+                decrypted_message = decrypt_text(private_key_path, encrypted_message)
+                if decrypted_message:
+                    print(f"Расшифрованный текст: {decrypted_message}")
 
         elif choice == "4":
-            print("Доступные пользователи для зашифровки файла:")
-            with open(json_file, 'r') as file:
-                data = json.load(file)
-                for entry in data:
-                    print(entry["username"])
-
-            username = input("Введите имя пользователя: ")
-            public_key_path = next((entry["public_key_path"] for entry in data if entry["username"] == username), None)
-
-            if not public_key_path:
-                print(f"Публичный ключ для пользователя '{username}' не найден в JSON файле.")
-                continue
-
-            file_to_encrypt = input("Введите путь к файлу для шифрования: ")
-            encrypt_file_rsa_aes(public_key_path, file_to_encrypt)
-
-        elif choice == "5":
-            # Вызов функции для автоматического поиска зашифрованных файлов
-            prompt_decrypt_file_choice(json_file)
-
-        elif choice == "6":
-            username = input("Введите имя пользователя, для которого добавляется публичный ключ друга: ")
-            friend_pub_key_path = input("Введите путь к файлу с публичным ключом друга: ")
-            add_friend_public_key(username, friend_pub_key_path, json_file)
-
-        elif choice == "7":
-            username = input("Введите имя пользователя для удаления из JSON файла: ")
-            delete_user_from_json(username, json_file)
-
-        elif choice == "8":
-            with open(json_file, 'r') as file:
-                data = json.load(file)
-                print("Список пользователей:")
-                for entry in data:
-                    print(f"Имя пользователя: {entry['username']}, Путь к публичному ключу: {entry['public_key_path']}, Путь к приватному ключу: {entry['private_key_path']}")
-
-        elif choice == "9":
-            prompt_add_found_keys()
-        elif choice == "10":
-            # Запрос текста для шифрования
+            # Запрос текста для шифрования с использованием AES-GCM
             print("Введите текст для шифрования:")
             text_to_encrypt = input()
 
-            # Вывод списка пользователей
-            print("Доступные пользователи для шифрования текста:")
-            with open(json_file, 'r') as file:
-                data = json.load(file)
-                valid_users = [entry for entry in data if entry.get("public_key_path")]
-                for idx, entry in enumerate(valid_users):
-                    print(f"{idx + 1}. {entry['username']}")
+            # Получение пользователя для шифрования
+            public_key_path, _ = get_user_to_encrypt(json_file)
+            if public_key_path:
+                encrypted_data = encrypt_text_gcm(public_key_path, text_to_encrypt)
+                print(f"Зашифрованные данные (AES-GCM): {encrypted_data}")
 
-            # Запрос номера пользователя
-            choice_user = int(input("Выберите пользователя (введите номер): ")) - 1
+        elif choice == "5":
+            # Получение пользователя для расшифровки
+            private_key_path, _ = get_user_to_decrypt(json_file)
+            if private_key_path:
+                encrypted_data_str = input("Введите зашифрованные данные (как словарь): ")
+                encrypted_data = eval(encrypted_data_str)
+                decrypted_text = decrypt_text_gcm(private_key_path, encrypted_data)
+                if decrypted_text:
+                    print(f"Расшифрованный текст: {decrypted_text}")
 
-            if choice_user < 0 or choice_user >= len(valid_users):
-                print("Неверный выбор.")
-                continue
+        elif choice == "6":
+            # Получение пользователя для шифрования файла
+            public_key_path, _ = get_user_to_encrypt(json_file)
+            if public_key_path:
+                file_to_encrypt = input("Введите путь к файлу для шифрования: ")
+                encrypted_file_path = encrypt_file(public_key_path, file_to_encrypt)
+                print(f"Файл зашифрован и сохранен как: {encrypted_file_path}")
 
-            user_data = valid_users[choice_user]
-            public_key_path = user_data['public_key_path']
+        elif choice == "7":
+            # Получение пользователя для расшифровки файла
+            private_key_path, _ = get_user_to_decrypt(json_file)
+            if private_key_path:
+                directories = input("Введите пути к директориям для поиска зашифрованных файлов, разделенные запятой: ").split(',')
+                encrypted_files = find_encrypted_files(directories)
+                
+                if not encrypted_files:
+                    print("Зашифрованные файлы не найдены.")
+                    continue
 
-            # Шифрование текста с использованием AES-GCM
-            encrypted_data = encrypt_text_rsa_aes_gcm(public_key_path, text_to_encrypt)
-        elif choice == "11":
-            # Ввод данных для расшифровки
-            encrypted_data_str = input("Введите зашифрованные данные (как словарь): ")
-            
-            # Преобразование строки в словарь
-            encrypted_data = eval(encrypted_data_str)
-            
-            # Расшифровка текста с использованием RSA + AES-GCM
-            decrypted_text = decrypt_text_rsa_aes_gcm(json_file, encrypted_data)
-            if decrypted_text:
-                print(f"Расшифрованный текст: {decrypted_text}")
-        elif choice == "12":
-            print("Доступные пользователи для шифрования файла:")
-            with open(json_file, 'r') as file:
-                data = json.load(file)
-                for entry in data:
-                    print(entry["username"])
+                print("Найденные зашифрованные файлы:")
+                for idx, file in enumerate(encrypted_files):
+                    print(f"{idx + 1}. {file}")
 
-            username = input("Введите имя пользователя: ")
-            public_key_path = next((entry["public_key_path"] for entry in data if entry["username"] == username), None)
+                file_choice = int(input("Выберите файл для расшифровки (введите номер): ")) - 1
 
-            if not public_key_path:
-                print(f"Публичный ключ для пользователя '{username}' не найден в JSON файле.")
-                continue
+                if file_choice < 0 or file_choice >= len(encrypted_files):
+                    print("Неверный выбор.")
+                    continue
 
-            file_to_encrypt = input("Введите путь к файлу для шифрования: ")
-            encrypt_file_rsa_aes_gcm(public_key_path, file_to_encrypt)
-        elif choice == "13":
-            print("Доступные пользователи для расшифровки файла:")
-            with open(json_file, 'r') as file:
-                data = json.load(file)
-                for entry in data:
-                    print(entry["username"])
+                decrypted_file_path = decrypt_file(private_key_path, encrypted_files[file_choice])
+                print(f"Файл расшифрован и сохранен как: {decrypted_file_path}")
 
-            username = input("Введите имя пользователя: ")
-            private_key_path = next((entry["private_key_path"] for entry in data if entry["username"] == username), None)
+        elif choice == "8":
+            # Получение пользователя для шифрования файла с использованием AES-GCM
+            public_key_path, _ = get_user_to_encrypt(json_file)
+            if public_key_path:
+                file_to_encrypt = input("Введите путь к файлу для шифрования: ")
+                encrypted_file_path = encrypt_file_gcm(public_key_path, file_to_encrypt)
+                print(f"Файл зашифрован (AES-GCM) и сохранен как: {encrypted_file_path}")
 
-            if not private_key_path:
-                print(f"Приватный ключ для пользователя '{username}' не найден в JSON файле.")
-                continue
+        elif choice == "9":
+            # Получение пользователя для расшифровки файла с использованием AES-GCM
+            private_key_path, _ = get_user_to_decrypt(json_file)
+            if private_key_path:
+                directories = input("Введите пути к директориям для поиска зашифрованных файлов, разделенные запятой: ").split(',')
+                encrypted_files = find_encrypted_files(directories)
+                
+                if not encrypted_files:
+                    print("Зашифрованные файлы не найдены.")
+                    continue
 
-            encrypted_file_path = input("Введите путь к зашифрованному файлу: ")
-            decrypt_file_rsa_aes_gcm(private_key_path, encrypted_file_path)
+                print("Найденные зашифрованные файлы (AES-GCM):")
+                for idx, file in enumerate(encrypted_files):
+                    print(f"{idx + 1}. {file}")
+
+                file_choice = int(input("Выберите файл для расшифровки (введите номер): ")) - 1
+
+                if file_choice < 0 or file_choice >= len(encrypted_files):
+                    print("Неверный выбор.")
+                    continue
+
+                decrypted_file_path = decrypt_file_gcm(private_key_path, encrypted_files[file_choice])
+                print(f"Файл расшифрован (AES-GCM) и сохранен как: {decrypted_file_path}")
+
+        elif choice == "10":
+            username = input("Введите имя пользователя, для которого добавляется публичный ключ друга: ")
+            friend_pub_key_path = input("Введите путь к файлу с публичным ключом друга: ")
+            add_friend_key(username, friend_pub_key_path, json_file)
 
         elif choice == "0":
             print("Выход из программы.")
@@ -837,11 +732,10 @@ def main():
         else:
             print("Неверный выбор. Пожалуйста, выберите от 0 до 13.")
 
-
 if __name__ == "__main__":
-    #prompt_add_found_keys()
     main()
 
 
+
+
 """АФИГЕТЬ 800 строк!!!"""
-#807 строка
