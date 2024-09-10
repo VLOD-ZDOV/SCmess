@@ -15,7 +15,6 @@ def get_download_directory():
     else:  # Другая платформа
         return os.path.join(os.environ['HOME'], 'Downloads')
 
-# Генерация пары ключей RSA с указанием владельца и назначения
 # Функция генерации пары ключей RSA с использованием имени пользователя и текущей даты
 def get_private_key_directory():
     """Определяет директорию для сохранения приватного ключа в зависимости от платформы."""
@@ -40,7 +39,17 @@ def get_public_key_directory():
     else:  # Другие платформы
         return os.path.expanduser("~")
 
+def info():
+    info = """
+    Пожалуйста, выберите действие:
 
+    1. Сначала надо сгенерировать ключи, найти их в папке (будет написано) и отправить другу
+    2. После получения ключа можно воспользоваться автосканом, если он не работает написать путь к ключу вручную
+    3. Для шифрования текста лучше использовать GCM метод, тк он имеет поддержку мульти строк и шифрует до 64гб текста
+    4. Чтобы обнулить программу удалите файл keys.json и по желанию ключи
+    5. GitHub создателя: https://github.com/VLOD-ZDOV
+    """
+    print(info)
 
 def generate_key_pair(username):
     """Генерация пары ключей RSA с использованием имени пользователя и текущей даты."""
@@ -724,7 +733,19 @@ def main():
             username = input("Введите имя пользователя, для которого добавляется публичный ключ друга: ")
             friend_pub_key_path = input("Введите путь к файлу с публичным ключом друга: ")
             add_friend_key(username, friend_pub_key_path, json_file)
-
+        elif choice == "11":    
+            with open(json_file, 'r') as file:
+                data = json.load(file)
+                print("Список пользователей:")
+                for entry in data:
+                    print(f"Имя пользователя: {entry['username']}, Путь к публичному ключу: {entry['public_key_path']}, Путь к приватному ключу: {entry['private_key_path']}")
+        elif choice == "12":
+            username = input("Введите имя пользователя для удаления из JSON файла: ")
+            delete_user_from_json(username, json_file)
+        elif choice == "13":    
+            scan_for_public_keys()
+        elif choice == "14":
+            info()
         elif choice == "0":
             print("Выход из программы.")
             break
