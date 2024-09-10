@@ -152,7 +152,6 @@ else:  # Другие платформы
 def scan_for_public_keys(custom_dirs=None):
     """Сканирует стандартные и дополнительные папки на наличие файлов с публичными ключами."""
     found_keys = []
-
     # Определяем стандартные директории для поиска
     if 'ANDROID_ROOT' in os.environ:  # Termux на Android
         standard_dirs = ['/sdcard/Download']
@@ -160,21 +159,18 @@ def scan_for_public_keys(custom_dirs=None):
     else:  # Windows или другие ОС
         standard_dirs = [os.path.join(os.environ['USERPROFILE'], 'Downloads')] if os.name == 'nt' else [os.path.expanduser("~/Downloads")]
         custom_dirs = custom_dirs or SEARCH_DIRECTORIES
-
     # Поиск ключей в стандартных директориях
     for dir_path in standard_dirs:
         if os.path.exists(dir_path):
             for filename in os.listdir(dir_path):
                 if filename.endswith('.pem') and 'pub' in filename:
                     found_keys.append(os.path.join(dir_path, filename))
-
     # Поиск ключей в пользовательских директориях
     for dir_path in custom_dirs:
         if os.path.exists(dir_path):
             for filename in os.listdir(dir_path):
                 if filename.endswith('.pem') and 'pub' in filename:
                     found_keys.append(os.path.join(dir_path, filename))
-
     return found_keys
 
 def prompt_add_found_keys(json_file="keys.json"):
@@ -191,6 +187,13 @@ def prompt_add_found_keys(json_file="keys.json"):
         add = input(f"Добавить ключ пользователя '{username}'? (y/n): ")
         if add.lower() == 'y':
             add_friend_public_key(username, key_path, json_file)
+def add_friend_public_key(username, friend_pub_key_path, json_file="keys.json"):
+    """Добавляет публичный ключ друга в JSON файл."""
+    friend_key_data = {
+        "username": username,
+        "public_key_path": friend_pub_key_path,
+        "private_key_path": None
+    }
 def add_friend_key(username, key_path, key_type, json_file):
     """
     Функция для добавления публичного или приватного ключа пользователя.
@@ -744,7 +747,7 @@ def main():
             username = input("Введите имя пользователя для удаления из JSON файла: ")
             delete_user_from_json(username, json_file)
         elif choice == "13":    
-            scan_for_public_keys()
+            prompt_add_found_keys()
         elif choice == "14":
             info()
         elif choice == "0":
