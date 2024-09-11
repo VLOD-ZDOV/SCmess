@@ -149,29 +149,58 @@ else:  # Другие платформы
         os.path.expanduser("~/Downloads")
     ]
 
-def scan_for_public_keys(custom_dirs=None):
-    """Сканирует стандартные и дополнительные папки на наличие файлов с публичными ключами."""
-    found_keys = []
-    # Определяем стандартные директории для поиска
-    if 'ANDROID_ROOT' in os.environ:  # Termux на Android
-        standard_dirs = ['/sdcard/Download']
-        custom_dirs = custom_dirs or SEARCH_DIRECTORIES
-    else:  # Windows или другие ОС
-        standard_dirs = [os.path.join(os.environ['USERPROFILE'], 'Downloads')] if os.name == 'nt' else [os.path.expanduser("~/Downloads")]
-        custom_dirs = custom_dirs or SEARCH_DIRECTORIES
-    # Поиск ключей в стандартных директориях
-    for dir_path in standard_dirs:
+def scan_for_public_keys(json_file):
+    """Сканирует стандартные и дополнительные папки на наличие файлов с публичными ключами, исключая уже существующие в keys.json."""
+    
+    # Загружаем существующие ключи из JSON файла
+    with open(json_file, 'r') as file:
+        data = json.load(file)
+        existing_keys = {entry.get('public_key_path') for entry in data if entry.get('public_key_path')}
+
+    found_keys = set()
+
+    # Поиск ключей во всех директориях из SEARCH_DIRECTORIES
+    for dir_path in SEARCH_DIRECTORIES:
         if os.path.exists(dir_path):
-            for filename in os.listdir(dir_path):
-                if filename.endswith('.pem') and 'pub' in filename:
-                    found_keys.append(os.path.join(dir_path, filename))
-    # Поиск ключей в пользовательских директориях
-    for dir_path in custom_dirs:
+            for root, _, files in os.walk(dir_path):
+                for filename in files:
+                    if filename.endswith('.pem') and 'pub' in filename:
+                        key_path = os.path.join(root, filename)
+                        key_path = os.path.normpath(key_path)  # Нормализуем путь
+                        if key_path not in existing_keys:  # Проверяем, чтобы ключ не был уже добавлен
+                            found_keys.add(key_path)
+
+    return list(found_keys)  # Преобразуем set обратно в list
+
+def scan_for_keys(json_file, key_type='public'):
+    """
+    Сканирует стандартные и дополнительные папки на наличие файлов ключей, исключая уже существующие в keys.json.
+    key_type может быть 'public' или 'private'.
+    """
+    # Загружаем существующие ключи из JSON файла
+    with open(json_file, 'r') as file:
+        data = json.load(file)
+        existing_keys = {entry.get(f'{key_type}_key_path') for entry in data if entry.get(f'{key_type}_key_path')}
+
+    found_keys = set()
+
+    # Поиск ключей во всех директориях из SEARCH_DIRECTORIES
+    for dir_path in SEARCH_DIRECTORIES:
         if os.path.exists(dir_path):
-            for filename in os.listdir(dir_path):
-                if filename.endswith('.pem') and 'pub' in filename:
-                    found_keys.append(os.path.join(dir_path, filename))
-    return found_keys
+            for root, _, files in os.walk(dir_path):
+                for filename in files:
+                    key_path = os.path.join(root, filename)
+                    key_path = os.path.normpath(key_path)  # Нормализуем путь
+                    
+                    if (key_type == 'public' and filename.endswith('.pem') and 'pub' in filename) or \
+                       (key_type == 'private' and filename.endswith('.pem') and 'pub' not in filename):
+                        if key_path not in existing_keys:  # Проверяем, чтобы ключ не был уже добавлен
+                            found_keys.add(key_path)
+
+    return list(found_keys)  # Преобразуем set обратно в list
+
+
+
 
 def prompt_add_found_keys(json_file="keys.json"):
     """Предлагает пользователю добавить найденные публичные ключи в JSON файл."""
@@ -249,14 +278,14 @@ def print_menu():
     Пожалуйста, выберите действие:
 
     1. Создать пару ключей и сохранить в JSON
-    2. Зашифровать текст с использованием RSA
-    3. Расшифровать текст с использованием RSA
-    4. Зашифровать текст с использованием AES-GCM
-    5. Расшифровать текст с использованием AES-GCM
-    6. Зашифровать файл с использованием RSA
-    7. Расшифровать файл с использованием RSA
-    8. Зашифровать файл с использованием AES-GCM
-    9. Расшифровать файл с использованием AES-GCM
+    2. Зашифровать текст c использованием RSA
+    3. Расшифровать текст c использованием RSA
+    4. Зашифровать текст c использованием AES-GCM
+    5. Расшифровать текст c использованием AES-GCM
+    6. Зашифровать файл c использованием RSA
+    7. Расшифровать файл c использованием RSA
+    8. Зашифровать файл c использованием AES-GCM
+    9. Расшифровать файл c использованием AES-GCM
     10. Добавить публичный или приватный ключ
     11. Показать всех пользователей
     12. Удалить пользователя из JSON файла
@@ -321,11 +350,8 @@ def get_multiline_input():
     # Объединение строк в единый текст
     return "\n".join(contents)
 
-def encrypt_text_gcm(public_key_path):
+def encrypt_text_gcm(public_key_path, text):
     """Шифрование текста с использованием RSA + AES-GCM."""
-    # Получение текста от пользователя
-    text = get_multiline_input()
-
     # Генерация случайного ключа для AES
     aes_key = os.urandom(32)  # 256-битный ключ для AES
     iv = os.urandom(12)  # Рекомендуемый размер для GCM IV - 96 бит (12 байт)
@@ -364,9 +390,10 @@ def encrypt_text_gcm(public_key_path):
     # Вывод данных для удобного копирования и вставки
     formatted_output = f"{{'aes_key': '{encrypted_data['aes_key']}', 'iv': '{encrypted_data['iv']}', 'tag': '{encrypted_data['tag']}', 'ciphertext': '{encrypted_data['ciphertext']}'}}"
     print("\nСкопируйте следующий блок для использования в функции дешифрования:")
-    print(formatted_output)
+    #print(formatted_output)
 
     return encrypted_data
+
 
 
 def decrypt_text_gcm(private_key_path, encrypted_data):
@@ -649,15 +676,15 @@ def main():
                     print(f"Расшифрованный текст: {decrypted_message}")
 
         elif choice == "4":
-            # Запрос текста для шифрования с использованием AES-GCM
-            print("Введите текст для шифрования:")
-            text_to_encrypt = input()
+            # Получение текста от пользователя
+            text_to_encrypt = get_multiline_input()
 
             # Получение пользователя для шифрования
             public_key_path, _ = get_user_to_encrypt(json_file)
             if public_key_path:
                 encrypted_data = encrypt_text_gcm(public_key_path, text_to_encrypt)
                 print(f"Зашифрованные данные (AES-GCM): {encrypted_data}")
+
 
         elif choice == "5":
             # Получение пользователя для расшифровки
@@ -747,7 +774,33 @@ def main():
             username = input("Введите имя пользователя для удаления из JSON файла: ")
             delete_user_from_json(username, json_file)
         elif choice == "13":    
-            prompt_add_found_keys()
+            """ Сканирование директорий и добавление новых публичных ключей """
+            key_type = input("Какой тип ключей вы хотите добавить? (public/private): ").strip().lower()
+            if key_type not in ['public', 'private', '1', '2']:
+                print("Неверный тип ключа. Укажите 'public' (1) или 'private' (2).")
+                continue
+            if key_type == '1':
+                key_type = 'public'
+            if key_type == '2': 
+                key_type = 'private'
+            found_keys = scan_for_keys(json_file, key_type)
+            if not found_keys:
+                print(f"Новые {key_type} ключи не найдены.")
+            else:
+                print(f"Найденные новые {key_type} ключи:")
+                for idx, key_path in enumerate(found_keys):
+                    print(f"{idx + 1}. {key_path}")
+
+                # Запрос на добавление ключей
+                for key_path in found_keys:
+                    username = input(f"Введите имя пользователя для ключа {key_path}: ").strip()
+                    
+                    # Проверка, что имя пользователя введено
+                    if not username:
+                        print("Имя пользователя не может быть пустым. Ключ не будет добавлен.")
+                        continue
+                    
+                    add_friend_key(username, key_path, key_type, json_file)
         elif choice == "14":
             info()
         elif choice == "0":
