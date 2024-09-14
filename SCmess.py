@@ -769,7 +769,10 @@ def main():
                 data = json.load(file)
                 print("Список пользователей:")
                 for entry in data:
-                    print(f"Имя пользователя: {entry['username']}, Путь к публичному ключу: {entry['public_key_path']}, Путь к приватному ключу: {entry['private_key_path']}")
+                    public_key = entry.get('public_key_path', 'Не указан')
+                    private_key = entry.get('private_key_path', 'Не указан')
+                    print(f"Имя пользователя: {entry['username']}, Путь к публичному ключу: {public_key}, Путь к приватному ключу: {private_key}")
+
         elif choice == "12":
             username = input("Введите имя пользователя для удаления из JSON файла: ")
             delete_user_from_json(username, json_file)
