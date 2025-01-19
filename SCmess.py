@@ -10,11 +10,11 @@ from datetime import datetime
 def get_download_directory():
     if os.name == 'nt':  # Windows
         return os.path.join(os.environ['USERPROFILE'], 'Downloads')
-    elif 'ANDROID_ROOT' in os.environ:  # Termux на Android
+    if 'ANDROID_ROOT' in os.environ:  # Termux на Android
         return os.path.join(os.environ['HOME'], 'downloads')
     else:  # Другая платформа
         return os.path.join(os.environ['HOME'], 'Downloads')
-
+CONFIG_FILE = "config.json"
 # Функция генерации пары ключей RSA с использованием имени пользователя и текущей даты
 def get_private_key_directory():
     """Определяет директорию для сохранения приватного ключа в зависимости от платформы."""
@@ -50,6 +50,25 @@ def info():
     5. GitHub создателя: https://github.com/VLOD-ZDOV
     """
     print(info)
+# Загружаем или создаём конфигурацию
+if os.path.exists(CONFIG_FILE):
+    with open(CONFIG_FILE, 'r') as config_file:
+        try:
+            config = json.load(config_file)
+        except json.JSONDecodeError:
+            config = {"legacy_mode": False}
+else:
+    config = {"legacy_mode": False}
+
+with open(CONFIG_FILE, 'w') as config_file:
+    json.dump(config, config_file, indent=4)
+
+# Переключение режима Legacy
+def toggle_legacy_mode():
+    config['legacy_mode'] = not config['legacy_mode']
+    with open(CONFIG_FILE, 'w') as config_file:
+        json.dump(config, config_file, indent=4)
+    print(f"Legacy-режим {'включен' if config['legacy_mode'] else 'выключен'}.")
 
 def generate_key_pair(username):
     """Генерация пары ключей RSA с использованием имени пользователя и текущей даты."""
@@ -128,25 +147,21 @@ def save_keys_to_json(username, pub_filename, priv_filename, json_file="keys.jso
 
 # Добавление ключа друга в JSON
 # Общие директории для поиска ключей и зашифрованных файлов
-if os.name == 'nt':  # Windows
+# Директории для поиска ключей
+if os.name == 'nt':
     SEARCH_DIRECTORIES = [
         os.path.join(os.environ.get('USERPROFILE', ''), 'Desktop'),
         os.path.join(os.environ.get('USERPROFILE', ''), 'Documents'),
-        os.path.join(os.environ.get('USERPROFILE', ''), 'Downloads')
+        os.path.join(os.environ.get('USERPROFILE', ''), 'Downloads'),
+        os.path.expanduser("~")
     ]
-if 'ANDROID_ROOT' in os.environ:  # Termux на Android
+if 'ANDROID_ROOT' in os.environ:
     SEARCH_DIRECTORIES = [
-        '/data/data/com.termux/files/home/custom_keys',  # Пример: пользовательская папка в Termux
-        '/sdcard/CustomKeys',  # Пример: пользовательская папка на Android
-        '/sdcard/Download',  # Папка загрузок
-        '/sdcard/Download/Telegram/',  # Папка Telegram
-        '/sdcard/WhatsApp/Media/WhatsApp Documents'  # Папка WhatsApp
+        '/data/data/com.termux/files/home', '/sdcard', '/sdcard/Download', '/sdcard/Telegram', '/sdcard/WhatsApp/Media'
     ]
-else:  # Другие платформы
+else:
     SEARCH_DIRECTORIES = [
-        os.path.expanduser("~/Desktop"),
-        os.path.expanduser("~/Documents"),
-        os.path.expanduser("~/Downloads")
+        os.path.expanduser("~/Desktop"), os.path.expanduser("~/Documents"), os.path.expanduser("~/Downloads"), os.path.expanduser("~")
     ]
 
 def scan_for_public_keys(json_file):
@@ -172,32 +187,23 @@ def scan_for_public_keys(json_file):
 
     return list(found_keys)  # Преобразуем set обратно в list
 
+# Сканирование директорий для поиска ключей
 def scan_for_keys(json_file, key_type='public'):
-    """
-    Сканирует стандартные и дополнительные папки на наличие файлов ключей, исключая уже существующие в keys.json.
-    key_type может быть 'public' или 'private'.
-    """
-    # Загружаем существующие ключи из JSON файла
     with open(json_file, 'r') as file:
         data = json.load(file)
         existing_keys = {entry.get(f'{key_type}_key_path') for entry in data if entry.get(f'{key_type}_key_path')}
 
     found_keys = set()
-
-    # Поиск ключей во всех директориях из SEARCH_DIRECTORIES
     for dir_path in SEARCH_DIRECTORIES:
         if os.path.exists(dir_path):
             for root, _, files in os.walk(dir_path):
                 for filename in files:
                     key_path = os.path.join(root, filename)
-                    key_path = os.path.normpath(key_path)  # Нормализуем путь
-                    
                     if (key_type == 'public' and filename.endswith('.pem') and 'pub' in filename) or \
                        (key_type == 'private' and filename.endswith('.pem') and 'pub' not in filename):
-                        if key_path not in existing_keys:  # Проверяем, чтобы ключ не был уже добавлен
+                        if key_path not in existing_keys:
                             found_keys.add(key_path)
-
-    return list(found_keys)  # Преобразуем set обратно в list
+    return list(found_keys)
 
 
 
@@ -270,29 +276,34 @@ def delete_user_from_json(username, json_file="keys.json"):
     else:
         print(f"JSON файл '{json_file}' не существует.")
 
-# Функция расшифровки с выбором ключа
+# Основное меню программы
 
 def print_menu():
-    """Функция для вывода меню."""
     menu = """
     Пожалуйста, выберите действие:
 
     1. Создать пару ключей и сохранить в JSON
-    2. Зашифровать текст c использованием RSA
-    3. Расшифровать текст c использованием RSA
-    4. Зашифровать текст c использованием AES-GCM
-    5. Расшифровать текст c использованием AES-GCM
-    6. Зашифровать файл c использованием RSA
-    7. Расшифровать файл c использованием RSA
-    8. Зашифровать файл c использованием AES-GCM
-    9. Расшифровать файл c использованием AES-GCM
-    10. Добавить публичный или приватный ключ
-    11. Показать всех пользователей
-    12. Удалить пользователя из JSON файла
-    13. Автоскан ключей
-    14. Info
+    2. Зашифровать текст c использованием AES-GCM
+    3. Расшифровать текст c использованием AES-GCM
+    4. Зашифровать файл c использованием AES-GCM
+    5. Расшифровать файл c использованием AES-GCM
+    6. Добавить публичный или приватный ключ
+    7. Показать всех пользователей
+    8. Удалить пользователя из JSON файла
+    9. Автоскан ключей
+    10. Info
+    11. {toggle_text}
+    {legacy_menu}
     0. Выйти из программы
+    """.format(
+        toggle_text="Выключить Legacy-режим" if config['legacy_mode'] else "Включить Legacy-режим",
+        legacy_menu="" if not config['legacy_mode'] else """
+    12. Зашифровать текст c использованием Legacy RSA
+    13. Расшифровать текст c использованием Legacy RSA
+    14. Зашифровать файл c использованием Legacy RSA
+    15. Расшифровать файл c использованием Legacy RSA
     """
+    )
     print(menu)
 
 
@@ -640,7 +651,7 @@ def decrypt_file(private_key_path, encrypted_file_path):
 # Основная функция
 def main():
     json_file = "keys.json"
-    
+
     # Проверяем, существует ли файл keys.json
     if not os.path.exists(json_file):
         with open(json_file, 'w') as file:
@@ -655,28 +666,9 @@ def main():
             priv_filename, pub_filename = generate_key_pair(username)
             save_keys_to_json(username, pub_filename, priv_filename, json_file)
 
+
         elif choice == "2":
-            # Запрос текста для шифрования
-            print("Введите текст для шифрования:")
-            text_to_encrypt = input()
-
-            # Получение пользователя для шифрования
-            public_key_path, _ = get_user_to_encrypt(json_file)
-            if public_key_path:
-                encrypted_message = encrypt_text(public_key_path, text_to_encrypt)
-                print(f"Зашифрованный текст: {encrypted_message}")
-
-        elif choice == "3":
-            # Получение пользователя для расшифровки
-            private_key_path, _ = get_user_to_decrypt(json_file)
-            if private_key_path:
-                encrypted_message = input("Введите зашифрованный текст: ")
-                decrypted_message = decrypt_text(private_key_path, encrypted_message)
-                if decrypted_message:
-                    print(f"Расшифрованный текст: {decrypted_message}")
-
-        elif choice == "4":
-            # Получение текста от пользователя
+            # Получение текста от пользователя gcm+aes
             text_to_encrypt = get_multiline_input()
 
             # Получение пользователя для шифрования
@@ -685,9 +677,15 @@ def main():
                 encrypted_data = encrypt_text_gcm(public_key_path, text_to_encrypt)
                 print(f"Зашифрованные данные (AES-GCM): {encrypted_data}")
 
+                # Добавляем возможность скопировать зашифрованный текст
+                copy_choice = input("Скопировать зашифрованный текст в буфер обмена? (д/н): ").strip().lower()
+                if copy_choice in ["д", "y"]:
+                    pyperclip.copy(str(encrypted_data))
+                    print("Зашифрованный текст скопирован в буфер обмена.")
 
-        elif choice == "5":
-            # Получение пользователя для расшифровки
+
+        elif choice == "3":
+            # Получение пользователя для расшифровки gcm+aes
             private_key_path, _ = get_user_to_decrypt(json_file)
             if private_key_path:
                 encrypted_data_str = input("Введите зашифрованные данные (как словарь): ")
@@ -696,39 +694,7 @@ def main():
                 if decrypted_text:
                     print(f"Расшифрованный текст: {decrypted_text}")
 
-        elif choice == "6":
-            # Получение пользователя для шифрования файла
-            public_key_path, _ = get_user_to_encrypt(json_file)
-            if public_key_path:
-                file_to_encrypt = input("Введите путь к файлу для шифрования: ")
-                encrypted_file_path = encrypt_file(public_key_path, file_to_encrypt)
-                print(f"Файл зашифрован и сохранен как: {encrypted_file_path}")
-
-        elif choice == "7":
-            # Получение пользователя для расшифровки файла
-            private_key_path, _ = get_user_to_decrypt(json_file)
-            if private_key_path:
-                directories = input("Введите пути к директориям для поиска зашифрованных файлов, разделенные запятой: ").split(',')
-                encrypted_files = find_encrypted_files(directories)
-                
-                if not encrypted_files:
-                    print("Зашифрованные файлы не найдены.")
-                    continue
-
-                print("Найденные зашифрованные файлы:")
-                for idx, file in enumerate(encrypted_files):
-                    print(f"{idx + 1}. {file}")
-
-                file_choice = int(input("Выберите файл для расшифровки (введите номер): ")) - 1
-
-                if file_choice < 0 or file_choice >= len(encrypted_files):
-                    print("Неверный выбор.")
-                    continue
-
-                decrypted_file_path = decrypt_file(private_key_path, encrypted_files[file_choice])
-                print(f"Файл расшифрован и сохранен как: {decrypted_file_path}")
-
-        elif choice == "8":
+        elif choice == "4":
             # Получение пользователя для шифрования файла с использованием AES-GCM
             public_key_path, _ = get_user_to_encrypt(json_file)
             if public_key_path:
@@ -736,7 +702,7 @@ def main():
                 encrypted_file_path = encrypt_file_gcm(public_key_path, file_to_encrypt)
                 print(f"Файл зашифрован (AES-GCM) и сохранен как: {encrypted_file_path}")
 
-        elif choice == "9":
+        elif choice == "5":
             # Получение пользователя для расшифровки файла с использованием AES-GCM
             private_key_path, _ = get_user_to_decrypt(json_file)
             if private_key_path:
@@ -760,11 +726,11 @@ def main():
                 decrypted_file_path = decrypt_file_gcm(private_key_path, encrypted_files[file_choice])
                 print(f"Файл расшифрован (AES-GCM) и сохранен как: {decrypted_file_path}")
 
-        elif choice == "10":
+        elif choice == "6":
             username = input("Введите имя пользователя, для которого добавляется публичный ключ друга: ")
             friend_pub_key_path = input("Введите путь к файлу с публичным ключом друга: ")
             add_friend_key(username, friend_pub_key_path, json_file)
-        elif choice == "11":    
+        elif choice == "7":
             with open(json_file, 'r') as file:
                 data = json.load(file)
                 print("Список пользователей:")
@@ -773,10 +739,10 @@ def main():
                     private_key = entry.get('private_key_path', 'Не указан')
                     print(f"Имя пользователя: {entry['username']}, Путь к публичному ключу: {public_key}, Путь к приватному ключу: {private_key}")
 
-        elif choice == "12":
+        elif choice == "8":
             username = input("Введите имя пользователя для удаления из JSON файла: ")
             delete_user_from_json(username, json_file)
-        elif choice == "13":    
+        elif choice == "9":
             """ Сканирование директорий и добавление новых публичных ключей """
             key_type = input("Какой тип ключей вы хотите добавить? (public/private): ").strip().lower()
             if key_type not in ['public', 'private', '1', '2']:
@@ -784,7 +750,7 @@ def main():
                 continue
             if key_type == '1':
                 key_type = 'public'
-            if key_type == '2': 
+            if key_type == '2':
                 key_type = 'private'
             found_keys = scan_for_keys(json_file, key_type)
             if not found_keys:
@@ -794,29 +760,91 @@ def main():
                 for idx, key_path in enumerate(found_keys):
                     print(f"{idx + 1}. {key_path}")
 
-                # Запрос на добавление ключей
-                for key_path in found_keys:
-                    username = input(f"Введите имя пользователя для ключа {key_path}: ").strip()
-                    
-                    # Проверка, что имя пользователя введено
-                    if not username:
-                        print("Имя пользователя не может быть пустым. Ключ не будет добавлен.")
-                        continue
-                    
-                    add_friend_key(username, key_path, key_type, json_file)
-        elif choice == "14":
+                selected_keys = input("Введите номера ключей для добавления (через запятую или диапазон, например 1,3-5): ")
+                indices_to_add = set()
+
+                for part in selected_keys.split(','):
+                    if '-' in part:
+                        start, end = map(int, part.split('-'))
+                        indices_to_add.update(range(start - 1, end))
+                    else:
+                        indices_to_add.add(int(part) - 1)
+
+                for idx in sorted(indices_to_add):
+                    if 0 <= idx < len(found_keys):
+                        key_path = found_keys[idx]
+                        username = input(f"Введите имя пользователя для ключа {key_path}: ").strip()
+
+                        if not username:
+                            print("Имя пользователя не может быть пустым. Ключ не будет добавлен.")
+                            continue
+
+                        add_friend_key(username, key_path, key_type, json_file)
+        elif choice == "10":
             info()
+        elif choice == "11":
+            toggle_legacy_mode()
         elif choice == "0":
             print("Выход из программы.")
             break
 
-        else:
-            print("Неверный выбор. Пожалуйста, выберите от 0 до 13.")
+        elif choice == "12":
+            # Запрос текста для шифрования
+            print("Введите текст для шифрования:")
+            text_to_encrypt = input()
+
+            # Получение пользователя для шифрования
+            public_key_path, _ = get_user_to_encrypt(json_file)
+            if public_key_path:
+                encrypted_message = encrypt_text(public_key_path, text_to_encrypt)
+                print(f"Зашифрованный текст: {encrypted_message}")
+
+                # Добавляем возможность скопировать зашифрованный текст
+                copy_choice = input("Скопировать зашифрованный текст в буфер обмена? (д/н): ").strip().lower()
+                if copy_choice in ["д", "y"]:
+                    pyperclip.copy(encrypted_message)
+                    print("Зашифрованный текст скопирован в буфер обмена.")
+
+
+        elif choice == "13":
+            # Получение пользователя для расшифровки
+            private_key_path, _ = get_user_to_decrypt(json_file)
+            if private_key_path:
+                encrypted_message = input("Введите зашифрованный текст: ")
+                decrypted_message = decrypt_text(private_key_path, encrypted_message)
+                if decrypted_message:
+                    print(f"Расшифрованный текст: {decrypted_message}")
+        elif choice == "14":
+            # Получение пользователя для шифрования файла rsa
+            public_key_path, _ = get_user_to_encrypt(json_file)
+            if public_key_path:
+                file_to_encrypt = input("Введите путь к файлу для шифрования: ")
+                encrypted_file_path = encrypt_file(public_key_path, file_to_encrypt)
+                print(f"Файл зашифрован и сохранен как: {encrypted_file_path}")
+
+        elif choice == "15":
+            # Получение пользователя для расшифровки файла rsa
+            private_key_path, _ = get_user_to_decrypt(json_file)
+            if private_key_path:
+                directories = input("Введите пути к директориям для поиска зашифрованных файлов, разделенные запятой: ").split(',')
+                encrypted_files = find_encrypted_files(directories)
+
+                if not encrypted_files:
+                    print("Зашифрованные файлы не найдены.")
+                    continue
+
+                print("Найденные зашифрованные файлы:")
+                for idx, file in enumerate(encrypted_files):
+                    print(f"{idx + 1}. {file}")
+
+                file_choice = int(input("Выберите файл для расшифровки (введите номер): ")) - 1
+
+                if file_choice < 0 or file_choice >= len(encrypted_files):
+                    print("Неверный выбор.")
+                    continue
+
+                decrypted_file_path = decrypt_file(private_key_path, encrypted_files[file_choice])
+                print(f"Файл расшифрован и сохранен как: {decrypted_file_path}")
 
 if __name__ == "__main__":
     main()
-
-
-
-
-"""АФИГЕТЬ 800 строк!!!"""
