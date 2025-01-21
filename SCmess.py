@@ -6,6 +6,8 @@ import base64
 import os
 import json
 from datetime import datetime
+import pyperclip
+
 # Мусорная функция, надеюсь перейду к нормльной SEARCH_DIRECTORIES
 def get_download_directory():
     if os.name == 'nt':  # Windows
