@@ -1,9 +1,9 @@
-НУЖНО СКАЧАТЬ 2 ПАЙТОН БИБЛИОТЕКИ:
-cryptography
-pyperclip
-pip install cryptography pyperclip
-или команда вашего дистрибутива 
-ТАКЖЕ нужно скачать xsel или xclip
+НУЖНО СКАЧАТЬ 2 ПАЙТОН БИБЛИОТЕКИ:  
+cryptography  
+pyperclip  
+pip install cryptography pyperclip  
+или команда вашего дистрибутива   
+ТАКЖЕ нужно скачать xsel или xclip  
 
 
 Называние странное, нужно было написать покороче и придумал что SecureCrypt messanger.  
