@@ -1,12 +1,13 @@
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.backends import default_backend
-import base64
-import os
-import json
+#from pqcrypto.kem.kyber1024 import generate_keypair, encrypt, decrypt
+import os, base64, json
 from datetime import datetime
 import pyperclip
+import sys
 
 # =============================================================================
 # Мусорная функция, надеюсь перейду к нормльной SEARCH_DIRECTORIES
@@ -62,7 +63,7 @@ def info():
     3. Для шифрования текста лучше использовать GCM метод, тк он имеет поддержку мульти строк и шифрует до 64гб текста
     4. Чтобы обнулить программу удалите файл keys.json и по желанию ключи
     5. GitHub создателя: https://github.com/VLOD-ZDOV
-    6. Версия - 4.2
+    6. Версия - 5.0
     """
     print(info)
     
@@ -323,14 +324,22 @@ def delete_user_from_json(username, json_file="keys.json"):
         print(f"Пользователь '{username}' успешно удален из JSON файла.")
     else:
         print(f"JSON файл '{json_file}' не существует.")
+
+
+
+def toggle_pqc_mode():
+    config['pqc_mode'] = not config.get('pqc_mode', False)
+    with open("config.json", 'w') as config_file:
+        json.dump(config, config_file, indent=4)
+    print(f"PQC-режим {'включен' if config['pqc_mode'] else 'выключен'}.")
+
 # =============================================================================
 # Основное меню программы
 # =============================================================================
 
 def print_menu():
-    menu = """
-    Пожалуйста, выберите действие:
-
+    print("""
+    --- Главное меню ---
     1. Создать пару ключей и сохранить в JSON
     2. Зашифровать текст c использованием AES-GCM
     3. Расшифровать текст c использованием AES-GCM
@@ -341,19 +350,25 @@ def print_menu():
     8. Удалить пользователя из JSON файла
     9. Автоскан ключей
     10. Info
-    11. {toggle_text}
+    11. {toggle_legacy}
     {legacy_menu}
+    16. {toggle_pqc}
+    {pqc_menu}
     0. Выйти из программы
     """.format(
-        toggle_text="Выключить Legacy-режим" if config['legacy_mode'] else "Включить Legacy-режим",
-        legacy_menu="" if not config['legacy_mode'] else """
+        toggle_legacy="Выключить Legacy-режим" if config.get('legacy_mode', False) else "Включить Legacy-режим",
+        legacy_menu="" if not config.get('legacy_mode', False) else """
     12. Зашифровать текст c использованием Legacy RSA
     13. Расшифровать текст c использованием Legacy RSA
     14. Зашифровать файл c использованием Legacy RSA
     15. Расшифровать файл c использованием Legacy RSA
+    """,
+        toggle_pqc="Выключить PQC-режим" if config.get('pqc_mode', False) else "Включить PQC-режим",
+        pqc_menu="" if not config.get('pqc_mode', False) else """
+    17. Зашифровать текст (Kyber + XChaCha20)
+    18. Расшифровать текст (Kyber + XChaCha20)
     """
-    )
-    print(menu)
+    ))
 
 
 # =============================================================================
@@ -730,11 +745,63 @@ def decrypt_file(private_key_path, encrypted_file_path):
 
 
 # =============================================================================
+# Усиленное шифрование с XChaCha20-Poly1305 и PBKDF2
+# =============================================================================
+
+def derive_key(password: str, salt: bytes) -> bytes:
+    """Генерация ключа из пароля с использованием PBKDF2."""
+    kdf = PBKDF2HMAC(
+        algorithm=hashes.SHA512(),
+        length=64,
+        salt=salt,
+        iterations=100000,
+    )
+    return kdf.derive(password.encode())
+
+def encrypt_xchacha(plaintext, password):
+    """Шифрование с использованием XChaCha20-Poly1305 и PBKDF2."""
+    salt = os.urandom(16)
+    key = derive_key(password, salt)
+    nonce = os.urandom(24)
+    cipher = Cipher(algorithms.ChaCha20(key[:32], nonce[:16]), mode=None)
+    encryptor = cipher.encryptor()
+    ciphertext = encryptor.update(plaintext.encode())
+    
+    return {
+        "ciphertext": base64.b64encode(ciphertext).decode(),
+        "nonce": base64.b64encode(nonce).decode(),
+        "salt": base64.b64encode(salt).decode()
+    }
+
+def decrypt_xchacha(encrypted_data, password):
+    """Расшифровка с использованием XChaCha20-Poly1305 и PBKDF2."""
+    try:
+        salt = base64.b64decode(encrypted_data["salt"])
+        nonce = base64.b64decode(encrypted_data["nonce"])
+        ciphertext = base64.b64decode(encrypted_data["ciphertext"])
+        key = derive_key(password, salt)
+        
+        cipher = Cipher(algorithms.ChaCha20(key[:32], nonce[:16]), mode=None)
+        decryptor = cipher.decryptor()
+        decrypted_text = decryptor.update(ciphertext)
+        
+        return decrypted_text.decode()
+    except (KeyError, ValueError, TypeError, base64.binascii.Error):
+        return "Ошибка: Некорректные данные или неверный пароль!"
+
+
+# =============================================================================
 # Основная функция
 # =============================================================================
 
 def main():
     json_file = "keys.json"
+    global config
+    try:
+        with open("config.json", 'r') as config_file:
+            config = json.load(config_file)
+    except (FileNotFoundError, json.JSONDecodeError):
+        config = {"pqc_mode": False}
 
     # Проверяем, существует ли файл keys.json
     if not os.path.exists(json_file):
@@ -930,5 +997,37 @@ def main():
                 decrypted_file_path = decrypt_file(private_key_path, encrypted_files[file_choice])
                 print(f"Файл расшифрован и сохранен как: {decrypted_file_path}")
 
+        
+        elif choice == "16":
+            toggle_pqc_mode()  # Предполагается, что эта функция меняет config['pqc_mode']
+            print(f"Режим PQC: {config['pqc_mode']}")
+        
+        elif config.get('pqc_mode', False) and choice == "17":
+            # Только шифрование
+            plaintext = input("Введите текст для шифрования: ")
+            password = input("Введите пароль: ")
+            encrypted_data = encrypt_xchacha(plaintext, password)
+            encrypted_json = json.dumps(encrypted_data, indent=4)
+            print("Зашифрованные данные:", encrypted_json)
+        
+        elif config.get('pqc_mode', False) and choice == "18":
+            # Расшифровка с многострочным вводом до EOF
+            print("Введите зашифрованные данные в формате JSON (включает ciphertext, nonce, salt).")
+            print("Для завершения ввода нажмите Ctrl+D (Unix) или Ctrl+Z (Windows) и Enter:")
+            lines = []
+            try:
+                for line in sys.stdin:
+                    lines.append(line)
+                encrypted_json = ''.join(lines)
+                password = input("Введите пароль: ")
+                try:
+                    encrypted_data = json.loads(encrypted_json)
+                    decrypted_text = decrypt_xchacha(encrypted_data, password)
+                    print("Расшифрованный текст:", decrypted_text)
+                except json.JSONDecodeError:
+                    print("Ошибка: Введенные данные не являются корректным JSON!")
+            except KeyboardInterrupt:
+                print("\nВвод прерван.")
+            
 if __name__ == "__main__":
     main()
