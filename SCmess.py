@@ -4,10 +4,9 @@ from cryptography.hazmat.primitives.asymmetric import padding, rsa
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.backends import default_backend
 #from pqcrypto.kem.kyber1024 import generate_keypair, encrypt, decrypt
-import os, base64, json
+import os, base64, json, sys
 from datetime import datetime
 import pyperclip
-import sys
 
 # =============================================================================
 # Мусорная функция, надеюсь перейду к нормльной SEARCH_DIRECTORIES
@@ -63,7 +62,7 @@ def info():
     3. Для шифрования текста лучше использовать GCM метод, тк он имеет поддержку мульти строк и шифрует до 64гб текста
     4. Чтобы обнулить программу удалите файл keys.json и по желанию ключи
     5. GitHub создателя: https://github.com/VLOD-ZDOV
-    6. Версия - 5.0
+    6. Версия - 5.1
     """
     print(info)
     
@@ -367,6 +366,8 @@ def print_menu():
         pqc_menu="" if not config.get('pqc_mode', False) else """
     17. Зашифровать текст (Kyber + XChaCha20)
     18. Расшифровать текст (Kyber + XChaCha20)
+    19. Зашифровать текст (Kyber + XChaCha20) пароль - ключ друга
+    20. Расшифровать текст (Kyber + XChaCha20) пароль - ваш ключ
     """
     ))
 
@@ -790,6 +791,71 @@ def decrypt_xchacha(encrypted_data, password):
         return "Ошибка: Некорректные данные или неверный пароль!"
 
 
+# Шифрование XChaCha20+RSA
+def encrypt_text_xchacha_rsa(public_key_path, text):
+    """Шифрование текста с использованием RSA + XChaCha20."""
+    xchacha_key = os.urandom(32)  # 256-битный ключ
+    nonce = os.urandom(16)  # 128-битный nonce для ChaCha20 в cryptography
+
+    # Шифрование текста с XChaCha20
+    cipher = Cipher(algorithms.ChaCha20(xchacha_key, nonce), mode=None, backend=default_backend())
+    encryptor = cipher.encryptor()
+    ciphertext = encryptor.update(text.encode()) + encryptor.finalize()
+
+    # Чтение публичного ключа RSA
+    with open(public_key_path, 'rb') as pub_file:
+        public_key = serialization.load_pem_public_key(pub_file.read(), backend=default_backend())
+
+    # Шифрование ключа XChaCha20 с RSA
+    encrypted_xchacha_key = public_key.encrypt(
+        xchacha_key,
+        padding.OAEP(
+            mgf=padding.MGF1(algorithm=hashes.SHA256()),
+            algorithm=hashes.SHA256(),
+            label=None
+        )
+    )
+
+    # Формирование результата
+    encrypted_data = {
+        'xchacha_key': base64.b64encode(encrypted_xchacha_key).decode('utf-8'),
+        'nonce': base64.b64encode(nonce).decode('utf-8'),
+        'ciphertext': base64.b64encode(ciphertext).decode('utf-8')
+    }
+    return encrypted_data
+
+# Расшифровка XChaCha20+RSA
+def decrypt_text_xchacha_rsa(private_key_path, encrypted_data):
+    """Расшифровка текста с использованием RSA + XChaCha20."""
+    encrypted_xchacha_key = base64.b64decode(encrypted_data['xchacha_key'])
+    nonce = base64.b64decode(encrypted_data['nonce'])
+    ciphertext = base64.b64decode(encrypted_data['ciphertext'])
+
+    # Чтение приватного ключа RSA
+    with open(private_key_path, 'rb') as priv_file:
+        private_key = serialization.load_pem_private_key(
+            priv_file.read(),
+            password=None,  # Если ключ защищен паролем, добавьте его сюда
+            backend=default_backend()
+        )
+
+    # Расшифровка ключа XChaCha20
+    xchacha_key = private_key.decrypt(
+        encrypted_xchacha_key,
+        padding.OAEP(
+            mgf=padding.MGF1(algorithm=hashes.SHA256()),
+            algorithm=hashes.SHA256(),
+            label=None
+        )
+    )
+
+    # Расшифровка текста
+    cipher = Cipher(algorithms.ChaCha20(xchacha_key, nonce), mode=None, backend=default_backend())
+    decryptor = cipher.decryptor()
+    decrypted_text = decryptor.update(ciphertext) + decryptor.finalize()
+
+    return decrypted_text.decode('utf-8')
+
 # =============================================================================
 # Основная функция
 # =============================================================================
@@ -1028,6 +1094,30 @@ def main():
                     print("Ошибка: Введенные данные не являются корректным JSON!")
             except KeyboardInterrupt:
                 print("\nВвод прерван.")
+        
+        elif choice == "19":
+            text_to_encrypt = get_multiline_input()
+            if text_to_encrypt:
+                public_key_path, user = get_user_to_encrypt(json_file)
+                if public_key_path:
+                    encrypted_data = encrypt_text_xchacha_rsa(public_key_path, text_to_encrypt)
+                    print(f"Зашифрованные данные (XChaCha20+RSA) для {user['username']}:")
+                    print(json.dumps(encrypted_data, indent=4))
+
+        elif choice == "20":
+            private_key_path, user = get_user_to_decrypt(json_file)
+            if private_key_path:
+                print("Введите зашифрованные данные (JSON) для XChaCha20+RSA:")
+                encrypted_json = get_multiline_input()
+                try:
+                    encrypted_data = json.loads(encrypted_json)
+                    decrypted_text = decrypt_text_xchacha_rsa(private_key_path, encrypted_data)
+                    print(f"Расшифрованный текст для {user['username']}:")
+                    print(decrypted_text)
+                except json.JSONDecodeError:
+                    print("Ошибка: Введенные данные не являются корректным JSON!")
+                except Exception as e:
+                    print(f"Ошибка расшифровки: {str(e)}")
             
 if __name__ == "__main__":
     main()
