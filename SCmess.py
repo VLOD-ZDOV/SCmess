@@ -62,7 +62,7 @@ def info():
     3. Для шифрования текста лучше использовать GCM метод, тк он имеет поддержку мульти строк и шифрует до 64гб текста
     4. Чтобы обнулить программу удалите файл keys.json и по желанию ключи
     5. GitHub создателя: https://github.com/VLOD-ZDOV
-    6. Версия - 5.1
+    6. Версия - 5.2
     """
     print(info)
     
@@ -226,17 +226,26 @@ def scan_for_keys(json_file, key_type='public'):
     with open(json_file, 'r') as file:
         data = json.load(file)
         existing_keys = {entry.get(f'{key_type}_key_path') for entry in data if entry.get(f'{key_type}_key_path')}
-
+    
+    use_standard_naming = input("Ключи имеют стандартный формат именования? (y/n): ").strip().lower() in ['y', '1', 'д','да','yes','ye']
     found_keys = set()
+    
     for dir_path in SEARCH_DIRECTORIES:
         if os.path.exists(dir_path):
             for root, _, files in os.walk(dir_path):
                 for filename in files:
                     key_path = os.path.join(root, filename)
-                    if (key_type == 'public' and filename.endswith('.pem') and 'pub' in filename) or \
-                       (key_type == 'private' and filename.endswith('.pem') and 'pub' not in filename):
-                        if key_path not in existing_keys:
-                            found_keys.add(key_path)
+                    if use_standard_naming:
+                        if key_type == 'public' and filename.startswith("RSA_") and "_pub_" in filename and filename.endswith('.pem'):
+                            if key_path not in existing_keys:
+                                found_keys.add(key_path)
+                        elif key_type == 'private' and filename.startswith("RSA_") and "_priv_" in filename and filename.endswith('.pem'):
+                            if key_path not in existing_keys:
+                                found_keys.add(key_path)
+                    else:
+                        if filename.endswith('.pem') and ((key_type == 'public' and 'pub' in filename) or (key_type == 'private' and 'pub' not in filename)):
+                            if key_path not in existing_keys:
+                                found_keys.add(key_path)
     return list(found_keys)
 
 
@@ -275,10 +284,6 @@ def add_friend_public_key(username, friend_pub_key_path, json_file="keys.json"):
 # =============================================================================
     
 def add_friend_key(username, key_path, key_type, json_file):
-    """
-    Функция для добавления публичного или приватного ключа пользователя.
-    key_type должен быть 'public' или 'private'.
-    """
     if key_type not in ['public', 'private']:
         print("Неверный тип ключа. Укажите 'public' или 'private'.")
         return
@@ -960,7 +965,6 @@ def main():
             username = input("Введите имя пользователя для удаления из JSON файла: ")
             delete_user_from_json(username, json_file)
         elif choice == "9":
-            """ Сканирование директорий и добавление новых публичных ключей """
             key_type = input("Какой тип ключей вы хотите добавить? (public/private): ").strip().lower()
             if key_type not in ['public', 'private', '1', '2']:
                 print("Неверный тип ключа. Укажите 'public' (1) или 'private' (2).")
@@ -976,26 +980,21 @@ def main():
                 print(f"Найденные новые {key_type} ключи:")
                 for idx, key_path in enumerate(found_keys):
                     print(f"{idx + 1}. {key_path}")
-
                 selected_keys = input("Введите номера ключей для добавления (через запятую или диапазон, например 1,3-5): ")
                 indices_to_add = set()
-
                 for part in selected_keys.split(','):
                     if '-' in part:
                         start, end = map(int, part.split('-'))
                         indices_to_add.update(range(start - 1, end))
                     else:
                         indices_to_add.add(int(part) - 1)
-
                 for idx in sorted(indices_to_add):
                     if 0 <= idx < len(found_keys):
                         key_path = found_keys[idx]
                         username = input(f"Введите имя пользователя для ключа {key_path}: ").strip()
-
                         if not username:
                             print("Имя пользователя не может быть пустым. Ключ не будет добавлен.")
                             continue
-
                         add_friend_key(username, key_path, key_type, json_file)
         elif choice == "10":
             info()
