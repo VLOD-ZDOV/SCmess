@@ -1,7 +1,7 @@
 НУЖНО СКАЧАТЬ 2 ПАЙТОН БИБЛИОТЕКИ:  
 1)cryptography  
 2)pyperclip  
-pip install cryptography pyperclip  
+pip install cryptography pyperclip xclip  
 или команда вашего дистрибутива   
 ТАКЖЕ нужно скачать xsel или xclip  
 Скачивание python в Termux: pkg ins python  
