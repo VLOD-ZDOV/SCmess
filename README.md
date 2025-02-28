@@ -1,6 +1,6 @@
 # SCmess
 
-SCmess — это инструмент для шифрования и расшифровки текста и файлов с использованием современных криптографических алгоритмов, таких как RSA, AES-GCM и XChaCha20-Poly1305. Поддерживаются режимы работы Legacy (RSA) и Post-Quantum (PQC) для дополнительной безопасности.
+SCmess — это инструмент для шифрования и расшифровки текста и файлов с использованием современных криптографических алгоритмов, таких как RSA, AES-GCM и XChaCha20-Poly1305. Поддерживаются режимы работы Legacy (RSA) и Post-Quantum (PQC) для обратной совместимости дополнительной безопасности.
 
 ## 🔧 Возможности
 
@@ -24,9 +24,10 @@ pip install cryptography pyperclip xclip
 
 Для корректной работы в Linux также потребуется xsel или xclip:
 
-sudo apt install xclip  # Для Debian/Ubuntu
-sudo pacman -S xclip    # Для Arch
-sudo dnf install xclip  # Для Fedora
+sudo apt install xclip  # Для Debian/Ubuntu  
+sudo pacman -S xclip    # Для Arch  
+sudo dnf install xclip  # Для Fedora  
+pkg ins xsel !! НЕ работает           # Для Termux
 
 ## 🚀 Запуск
 
@@ -59,9 +60,9 @@ python SCmess.py
 
 RSA-4096 (Legacy-режим)
 
-AES-GCM (быстрое симметричное шифрование)
+AES-GCM (быстрое симметричное шифрование через rsa ключ)
 
-XChaCha20-Poly1305 (дополнительный уровень безопасности)
+XChaCha20-Poly1305 (дополнительный уровень безопасности с возможностью шифрования через пароль)
 
 Post-Quantum Cryptography (Kyber) (экспериментальная поддержка)
 
