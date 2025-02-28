@@ -20,7 +20,7 @@ SCmess — это инструмент для шифрования и расши
 
 Перед использованием установите необходимые зависимости:
 
-pip install cryptography pyperclip xclip
+pip install cryptography pyperclip 
 
 Для корректной работы в Linux также потребуется xsel или xclip:
 
