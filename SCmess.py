@@ -8,19 +8,7 @@ import os, base64, json, sys
 from datetime import datetime
 import pyperclip
 
-# =============================================================================
-# Мусорная функция, надеюсь перейду к нормльной SEARCH_DIRECTORIES
-# =============================================================================
-
-def get_download_directory():
-    if os.name == 'nt':  # Windows
-        return os.path.join(os.environ['USERPROFILE'], 'Downloads')
-    if 'ANDROID_ROOT' in os.environ:  # Termux на Android
-        return os.path.join(os.environ['HOME'], 'downloads')
-    else:  # Другая платформа
-        return os.path.join(os.environ['HOME'], 'Downloads')
 CONFIG_FILE = "config.json"
-
 # =============================================================================
 # Генерации пары ключей RSA с использованием имени пользователя и текущей даты
 # =============================================================================
@@ -62,7 +50,7 @@ def info():
     3. Для шифрования текста лучше использовать GCM метод, тк он имеет поддержку мульти строк и шифрует до 64гб текста
     4. Чтобы обнулить программу удалите файл keys.json и по желанию ключи
     5. GitHub создателя: https://github.com/VLOD-ZDOV
-    6. Версия - 5.2
+    6. Версия - 5.3
     """
     print(info)
     
