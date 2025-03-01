@@ -50,7 +50,7 @@ def info():
     3. Для шифрования текста лучше использовать GCM метод, тк он имеет поддержку мульти строк и шифрует до 64гб текста
     4. Чтобы обнулить программу удалите файл keys.json и по желанию ключи
     5. GitHub создателя: https://github.com/VLOD-ZDOV
-    6. Версия - 5.3
+    6. Версия - 5.4
     """
     print(info)
     
@@ -619,7 +619,7 @@ def encrypt_file_gcm(public_key_path, file_path):
 def decrypt_file_gcm(private_key_path, encrypted_file_path):
     # Чтение зашифрованного файла
     with open(encrypted_file_path, 'rb') as f:
-        encrypted_aes_key = f.read(256)  # Длина зашифрованного ключа RSA
+        encrypted_aes_key = f.read(512)  # Длина зашифрованного ключа RSA
         iv = f.read(12)
         tag = f.read(16)
         ciphertext = f.read()
