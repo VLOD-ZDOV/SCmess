@@ -67,11 +67,17 @@ class SCMessGUI(QMainWindow):
         self.settings_tab = QWidget()
         self.info_tab = QWidget()
 
-        self.keys_layout = QVBoxLayout(self.keys_tab)
-        self.text_layout = QVBoxLayout(self.text_tab)
-        self.files_layout = QVBoxLayout(self.files_tab)
-        self.settings_layout = QVBoxLayout(self.settings_tab)
-        self.info_layout = QVBoxLayout(self.info_tab)
+        self.keys_layout = QVBoxLayout()
+        self.text_layout = QVBoxLayout()
+        self.files_layout = QVBoxLayout()
+        self.settings_layout = QVBoxLayout()
+        self.info_layout = QVBoxLayout()
+
+        self.keys_tab.setLayout(self.keys_layout)
+        self.text_tab.setLayout(self.text_layout)
+        self.files_tab.setLayout(self.files_layout)
+        self.settings_tab.setLayout(self.settings_layout)
+        self.info_tab.setLayout(self.info_layout)
 
         self.tabs.addTab(self.keys_tab, "Ключи")
         self.tabs.addTab(self.text_tab, "Текст")
@@ -100,19 +106,31 @@ class SCMessGUI(QMainWindow):
         self.keys_layout.addWidget(self.autoscan_keys_btn)
         self.keys_layout.addStretch()
 
+    def init_text_tab(self):
+        """Инициализация вкладки 'Текст'."""
+        self.text_input = QTextEdit()
+        self.text_input.setPlaceholderText("Введите текст для шифрования/расшифровки...")
+        self.text_layout.addWidget(self.text_input)
+
+        self.encrypt_gcm_btn = QPushButton("Зашифровать текст (AES-GCM)")
+        self.decrypt_gcm_btn = QPushButton("Расшифровать текст (AES-GCM)")
+        self.encrypt_gcm_btn.clicked.connect(self.encrypt_text_gcm)
+        self.decrypt_gcm_btn.clicked.connect(self.decrypt_text_gcm)
+        self.text_layout.addWidget(self.encrypt_gcm_btn)
+        self.text_layout.addWidget(self.decrypt_gcm_btn)
+
+        self.update_text_tab_buttons()
+
     def init_files_tab(self):
         """Инициализация вкладки 'Файлы'."""
-        # Поле ввода пути к файлу
         self.file_path_input = QLineEdit()
         self.file_path_input.setPlaceholderText("Выберите файл...")
-        self.files_layout.addWidget(self.file_path_input)
-
-        # Кнопка выбора файла
         self.select_file_btn = QPushButton("Выбрать файл")
         self.select_file_btn.clicked.connect(self.select_file)
+
+        self.files_layout.addWidget(self.file_path_input)
         self.files_layout.addWidget(self.select_file_btn)
 
-        # Кнопки шифрования и расшифрования
         self.encrypt_file_gcm_btn = QPushButton("Зашифровать файл (AES-GCM)")
         self.decrypt_file_gcm_btn = QPushButton("Расшифровать файл (AES-GCM)")
         self.encrypt_file_gcm_btn.clicked.connect(self.encrypt_file_gcm)
@@ -120,60 +138,27 @@ class SCMessGUI(QMainWindow):
         self.files_layout.addWidget(self.encrypt_file_gcm_btn)
         self.files_layout.addWidget(self.decrypt_file_gcm_btn)
 
+        self.update_files_tab_buttons()
+
+    def init_settings_tab(self):
+        """Инициализация вкладки 'Настройки'."""
+        self.legacy_mode_cb = QCheckBox("Legacy-режим")
+        self.pqc_mode_cb = QCheckBox("PQC-режим")
+        self.legacy_mode_cb.setChecked(config.get("legacy_mode", False))
+        self.pqc_mode_cb.setChecked(config.get("pqc_mode", False))
+        self.legacy_mode_cb.stateChanged.connect(self.toggle_legacy_mode)
+        self.pqc_mode_cb.stateChanged.connect(self.toggle_pqc_mode)
+
+        self.settings_layout.addWidget(self.legacy_mode_cb)
+        self.settings_layout.addWidget(self.pqc_mode_cb)
+        self.settings_layout.addStretch()
+
     def init_info_tab(self):
         """Инициализация вкладки 'Информация'."""
         self.show_info_btn = QPushButton("Показать информацию")
         self.show_info_btn.clicked.connect(self.show_info)
         self.info_layout.addWidget(self.show_info_btn)
-        self.info_layout.addStretch()  # Растяжка, чтобы кнопка не занимала всё пространство
-
-    def init_text_tab(self):
-        # Текстовое поле
-        self.text_input = QTextEdit()
-        self.text_input.setPlaceholderText("Введите текст для шифрования/расшифровки...")
-        self.text_layout.addWidget(self.text_input)
-
-        # Основные кнопки (AES-GCM)
-        self.encrypt_gcm_btn = QPushButton("Зашифровать текст (AES-GCM)")
-        self.decrypt_gcm_btn = QPushButton("Расшифровать текст (AES-GCM)")
-        self.text_layout.addWidget(self.encrypt_gcm_btn)
-        self.text_layout.addWidget(self.decrypt_gcm_btn)
-
-        # Контейнер для Legacy кнопок
-        self.legacy_container = QWidget()
-        legacy_layout = QVBoxLayout(self.legacy_container)
-        self.encrypt_legacy_btn = QPushButton("Зашифровать текст (Legacy RSA)")
-        self.decrypt_legacy_btn = QPushButton("Расшифровать текст (Legacy RSA)")
-        legacy_layout.addWidget(self.encrypt_legacy_btn)
-        legacy_layout.addWidget(self.decrypt_legacy_btn)
-
-        # Контейнер для PQC кнопок
-        self.pqc_container = QWidget()
-        pqc_layout = QVBoxLayout(self.pqc_container)
-        self.encrypt_pqc_btn = QPushButton("Зашифровать текст (Kyber + XChaCha20)")
-        self.decrypt_pqc_btn = QPushButton("Расшифровать текст (Kyber + XChaCha20)")
-        pqc_layout.addWidget(self.encrypt_pqc_btn)
-        pqc_layout.addWidget(self.decrypt_pqc_btn)
-
-        # Обновляем кнопки в зависимости от настроек
-        self.update_text_tab_buttons()
-
-
-    def init_settings_tab(self):
-        self.legacy_checkbox = QCheckBox("Legacy-режим")
-        self.pqc_checkbox = QCheckBox("PQC-режим")
-        self.legacy_checkbox.setChecked(config.get("legacy_mode", False))
-        self.pqc_checkbox.setChecked(config.get("pqc_mode", False))
-
-        # Подключаем сигналы для обновления
-        self.legacy_checkbox.stateChanged.connect(self.update_text_tab_buttons)
-        self.pqc_checkbox.stateChanged.connect(self.update_text_tab_buttons)
-
-        # Добавляем виджеты в макет
-        self.settings_layout.addWidget(self.legacy_checkbox)
-        self.settings_layout.addWidget(self.pqc_checkbox)
-        self.settings_layout.addStretch()  # Растяжка прижимает виджеты к верху
-
+        self.info_layout.addStretch()
 
     ### Методы управления ключами
     def create_keys(self):
@@ -292,34 +277,61 @@ class SCMessGUI(QMainWindow):
             decrypted_file = self.decrypt_file_gcm_backend(private_key_path, file_path)
             QMessageBox.information(self, "Успех", f"Файл расшифрован (AES-GCM): {decrypted_file}")
 
-
-    def update_text_tab_buttons(self):
-        """Обновление кнопок на вкладке 'Текст'."""
-        # Удаляем старые контейнеры из макета, если они там есть
-        if hasattr(self, 'legacy_container') and self.legacy_container in self.text_layout.children():
-            self.text_layout.removeWidget(self.legacy_container)
-            self.legacy_container.setParent(None)  # Отключаем от текущего родителя
-        if hasattr(self, 'pqc_container') and self.pqc_container in self.text_layout.children():
-            self.text_layout.removeWidget(self.pqc_container)
-            self.pqc_container.setParent(None)
-
-        # Добавляем контейнеры в зависимости от настроек
-        if config.get("legacy_mode", False):
-            self.text_layout.addWidget(self.legacy_container)
-        if config.get("pqc_mode", False):
-            self.text_layout.addWidget(self.pqc_container)
-
-        # Обновляем макет
-        self.text_layout.update()
-
     ### Методы настроек
     def toggle_legacy_mode(self):
-        config["legacy_mode"] = self.legacy_checkbox.isChecked()
+        config["legacy_mode"] = self.legacy_mode_cb.isChecked()
         self.save_config()
+        self.update_text_tab_buttons()
+        self.update_files_tab_buttons()
 
     def toggle_pqc_mode(self):
-        config["pqc_mode"] = self.pqc_checkbox.isChecked()
+        config["pqc_mode"] = self.pqc_mode_cb.isChecked()
         self.save_config()
+        self.update_text_tab_buttons()
+
+    def update_text_tab_buttons(self):
+        """Динамическое обновление кнопок на вкладке 'Текст'."""
+        # Удаляем старые кнопки Legacy и PQC, если они есть
+        if hasattr(self, "encrypt_legacy_btn"):
+            self.text_layout.removeWidget(self.encrypt_legacy_btn)
+            self.encrypt_legacy_btn.deleteLater()
+            self.text_layout.removeWidget(self.decrypt_legacy_btn)
+            self.decrypt_legacy_btn.deleteLater()
+        if hasattr(self, "encrypt_pqc_btn"):
+            self.text_layout.removeWidget(self.encrypt_pqc_btn)
+            self.encrypt_pqc_btn.deleteLater()
+            self.text_layout.removeWidget(self.decrypt_pqc_btn)
+            self.decrypt_pqc_btn.deleteLater()
+            self.text_layout.removeWidget(self.encrypt_pqc_pass_btn)
+            self.encrypt_pqc_pass_btn.deleteLater()
+            self.text_layout.removeWidget(self.decrypt_pqc_pass_btn)
+            self.decrypt_pqc_pass_btn.deleteLater()
+
+        # Добавляем кнопки для Legacy режима, если он включен
+        if config.get("legacy_mode", False):
+            self.encrypt_legacy_btn = QPushButton("Зашифровать текст (Legacy RSA)")
+            self.decrypt_legacy_btn = QPushButton("Расшифровать текст (Legacy RSA)")
+            self.encrypt_legacy_btn.clicked.connect(self.encrypt_text_legacy)
+            self.decrypt_legacy_btn.clicked.connect(self.decrypt_text_legacy)
+            self.text_layout.addWidget(self.encrypt_legacy_btn)
+            self.text_layout.addWidget(self.decrypt_legacy_btn)
+
+        # Добавляем кнопки для PQC режима, если он включен
+        if config.get("pqc_mode", False):
+            self.encrypt_pqc_btn = QPushButton("Зашифровать текст (Kyber + XChaCha20)")
+            self.decrypt_pqc_btn = QPushButton("Расшифровать текст (Kyber + XChaCha20)")
+            self.encrypt_pqc_pass_btn = QPushButton("Зашифровать текст (Kyber + XChaCha20) с паролем")
+            self.decrypt_pqc_pass_btn = QPushButton("Расшифровать текст (Kyber + XChaCha20) с паролем")
+            self.encrypt_pqc_btn.clicked.connect(self.encrypt_text_pqc)
+            self.decrypt_pqc_btn.clicked.connect(self.decrypt_text_pqc)
+            self.encrypt_pqc_pass_btn.clicked.connect(self.encrypt_text_pqc_pass)
+            self.decrypt_pqc_pass_btn.clicked.connect(self.decrypt_text_pqc_pass)
+            self.text_layout.addWidget(self.encrypt_pqc_btn)
+            self.text_layout.addWidget(self.decrypt_pqc_btn)
+            self.text_layout.addWidget(self.encrypt_pqc_pass_btn)
+            self.text_layout.addWidget(self.decrypt_pqc_pass_btn)
+
+        self.text_layout.addStretch()
 
     def update_files_tab_buttons(self):
         """Динамическое обновление кнопок на вкладке 'Файлы'."""
@@ -718,7 +730,6 @@ class SCMessGUI(QMainWindow):
         decryptor = cipher.decryptor()
         decrypted_text = decryptor.update(ciphertext) + decryptor.finalize()
         return decrypted_text.decode('utf-8')
-
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
