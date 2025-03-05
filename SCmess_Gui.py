@@ -335,16 +335,25 @@ class SCMessGUI(QMainWindow):
 
     def update_files_tab_buttons(self):
         """Динамическое обновление кнопок на вкладке 'Файлы'."""
+        # Добавляем основные кнопки, если их ещё нет в макете
         for btn in [self.encrypt_file_gcm_btn, self.decrypt_file_gcm_btn]:
-            if btn not in self.files_layout.children():
+            # Получаем список виджетов в макете
+            current_widgets = [self.files_layout.itemAt(i).widget() for i in range(self.files_layout.count()) if self.files_layout.itemAt(i).widget()]
+            if btn not in current_widgets:
                 self.files_layout.addWidget(btn)
 
-        if hasattr(self, "encrypt_file_legacy_btn"):
+        # Удаляем кнопки Legacy, если они существуют, и обнуляем ссылки на них
+        if hasattr(self, "encrypt_file_legacy_btn") and self.encrypt_file_legacy_btn is not None:
             self.files_layout.removeWidget(self.encrypt_file_legacy_btn)
             self.encrypt_file_legacy_btn.deleteLater()
+            self.encrypt_file_legacy_btn = None
+
+        if hasattr(self, "decrypt_file_legacy_btn") and self.decrypt_file_legacy_btn is not None:
             self.files_layout.removeWidget(self.decrypt_file_legacy_btn)
             self.decrypt_file_legacy_btn.deleteLater()
+            self.decrypt_file_legacy_btn = None
 
+        # Если Legacy-режим включён, создаём и добавляем новые кнопки
         if config.get("legacy_mode", False):
             self.encrypt_file_legacy_btn = QPushButton("Зашифровать файл (Legacy RSA)")
             self.decrypt_file_legacy_btn = QPushButton("Расшифровать файл (Legacy RSA)")
