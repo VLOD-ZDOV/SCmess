@@ -17,7 +17,7 @@ CONFIG_FILE = "config.json"
 KEYS_FILE = "keys.json"
 
 class SCMessGUI(QMainWindow):
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("SCmess")
         self.setGeometry(100, 100, 800, 600)
@@ -29,7 +29,7 @@ class SCMessGUI(QMainWindow):
         self.tabs = QTabWidget()
         self.setCentralWidget(self.tabs)
 
-        # Инициализация вкладок
+        # Инициализаци� вкладок
         self.init_tabs()
         self.init_keys_tab()
         self.init_text_tab()
@@ -38,7 +38,7 @@ class SCMessGUI(QMainWindow):
         self.init_info_tab()
 
     def load_config(self):
-        """Загрузка или создание файла конфигурации."""
+        """Загрузка или �оздание файла конфигурации."""
         global config
         if os.path.exists(CONFIG_FILE):
             with open(CONFIG_FILE, 'r') as f:
@@ -80,18 +80,18 @@ class SCMessGUI(QMainWindow):
         self.info_tab.setLayout(self.info_layout)
 
         self.tabs.addTab(self.keys_tab, "Ключи")
-        self.tabs.addTab(self.text_tab, "Текст")
+        self.tabs.addTab(self.text_tab, "Тек�т")
         self.tabs.addTab(self.files_tab, "Файлы")
-        self.tabs.addTab(self.settings_tab, "Настройки")
-        self.tabs.addTab(self.info_tab, "Информация")
+        self.tabs.addTab(self.settings_tab, "�а�тройки")
+        self.tabs.addTab(self.info_tab, "Информаци�")
 
     def init_keys_tab(self):
-        """Инициализация вкладки 'Ключи'."""
+        """Инициализаци� вкладки 'Ключи'."""
         self.create_keys_btn = QPushButton("Создать пару ключей")
         self.add_key_btn = QPushButton("Добавить ключ")
         self.show_users_btn = QPushButton("Показать пользователей")
-        self.delete_user_btn = QPushButton("Удалить пользователя")
-        self.autoscan_keys_btn = QPushButton("Автоскан ключей")
+        self.delete_user_btn = QPushButton("Удалить пользовател�")
+        self.autoscan_keys_btn = QPushButton("�вто�кан ключей")
 
         self.create_keys_btn.clicked.connect(self.create_keys)
         self.add_key_btn.clicked.connect(self.add_key)
@@ -107,13 +107,13 @@ class SCMessGUI(QMainWindow):
         self.keys_layout.addStretch()
 
     def init_text_tab(self):
-        """Инициализация вкладки 'Текст'."""
+        """Инициализаци� вкладки 'Тек�т'."""
         self.text_input = QTextEdit()
-        self.text_input.setPlaceholderText("Введите текст для шифрования/расшифровки...")
+        self.text_input.setPlaceholderText("Введите тек�т дл� шифровани�/ра�шифровки...")
         self.text_layout.addWidget(self.text_input)
 
-        self.encrypt_gcm_btn = QPushButton("Зашифровать текст (AES-GCM)")
-        self.decrypt_gcm_btn = QPushButton("Расшифровать текст (AES-GCM)")
+        self.encrypt_gcm_btn = QPushButton("Зашифровать тек�т (AES-GCM)")
+        self.decrypt_gcm_btn = QPushButton("Ра�шифровать тек�т (AES-GCM)")
         self.encrypt_gcm_btn.clicked.connect(self.encrypt_text_gcm)
         self.decrypt_gcm_btn.clicked.connect(self.decrypt_text_gcm)
         self.text_layout.addWidget(self.encrypt_gcm_btn)
@@ -122,7 +122,7 @@ class SCMessGUI(QMainWindow):
         self.update_text_tab_buttons()
 
     def init_files_tab(self):
-        """Инициализация вкладки 'Файлы'."""
+        """Инициализаци� вкладки 'Файлы'."""
         self.file_path_input = QLineEdit()
         self.file_path_input.setPlaceholderText("Выберите файл...")
         self.select_file_btn = QPushButton("Выбрать файл")
@@ -132,7 +132,7 @@ class SCMessGUI(QMainWindow):
         self.files_layout.addWidget(self.select_file_btn)
 
         self.encrypt_file_gcm_btn = QPushButton("Зашифровать файл (AES-GCM)")
-        self.decrypt_file_gcm_btn = QPushButton("Расшифровать файл (AES-GCM)")
+        self.decrypt_file_gcm_btn = QPushButton("Ра�шифровать файл (AES-GCM)")
         self.encrypt_file_gcm_btn.clicked.connect(self.encrypt_file_gcm)
         self.decrypt_file_gcm_btn.clicked.connect(self.decrypt_file_gcm)
         self.files_layout.addWidget(self.encrypt_file_gcm_btn)
@@ -141,7 +141,7 @@ class SCMessGUI(QMainWindow):
         self.update_files_tab_buttons()
 
     def init_settings_tab(self):
-        """Инициализация вкладки 'Настройки'."""
+        """Инициализаци� вкладки '�а�тройки'."""
         self.legacy_mode_cb = QCheckBox("Legacy-режим")
         self.pqc_mode_cb = QCheckBox("PQC-режим")
         self.legacy_mode_cb.setChecked(config.get("legacy_mode", False))
@@ -154,22 +154,22 @@ class SCMessGUI(QMainWindow):
         self.settings_layout.addStretch()
 
     def init_info_tab(self):
-        """Инициализация вкладки 'Информация'."""
+        """Инициализаци� вкладки 'Информаци�'."""
         self.show_info_btn = QPushButton("Показать информацию")
         self.show_info_btn.clicked.connect(self.show_info)
         self.info_layout.addWidget(self.show_info_btn)
         self.info_layout.addStretch()
 
-    ### Методы управления ключами
+    ### Методы управлени� ключами
     def create_keys(self):
-        username, ok = QInputDialog.getText(self, "Создать пару ключей", "Введите имя пользователя:")
+        username, ok = QInputDialog.getText(self, "Создать пару ключей", "Введите им� пользовател�:")
         if ok and username:
             priv_filename, pub_filename = self.generate_key_pair(username)
             self.save_keys_to_json(username, pub_filename, priv_filename)
-            QMessageBox.information(self, "Успех", f"Ключи созданы:\nПриватный: {priv_filename}\nПубличный: {pub_filename}")
+            QMessageBox.information(self, "У�пех", f"Ключи �озданы:\nПриватный: {priv_filename}\nПубличный: {pub_filename}")
 
     def add_key(self):
-        username, ok = QInputDialog.getText(self, "Добавить ключ", "Введите имя пользователя:")
+        username, ok = QInputDialog.getText(self, "Добавить ключ", "Введите им� пользовател�:")
         if not ok or not username:
             return
         key_type, ok = QInputDialog.getItem(self, "Тип ключа", "Выберите тип ключа:", ["public", "private"], 0, False)
@@ -178,68 +178,68 @@ class SCMessGUI(QMainWindow):
         key_path, _ = QFileDialog.getOpenFileName(self, f"Выберите {key_type} ключ", "", "PEM Files (*.pem)")
         if key_path:
             self.add_friend_key(username, key_path, key_type)
-            QMessageBox.information(self, "Успех", f"{key_type.capitalize()} ключ для '{username}' добавлен.")
+            QMessageBox.information(self, "У�пех", f"{key_type.capitalize()} ключ дл� '{username}' добавлен.")
 
     def show_users(self):
         with open(KEYS_FILE, 'r') as f:
             data = json.load(f)
         if not data:
-            QMessageBox.information(self, "Пользователи", "Список пользователей пуст.")
+            QMessageBox.information(self, "Пользователи", "Спи�ок пользователей пу�т.")
             return
-        users_info = "Список пользователей:\n"
+        users_info = "Спи�ок пользователей:\n"
         for entry in data:
-            pub = entry.get('public_key_path', 'Не указан')
-            priv = entry.get('private_key_path', 'Не указан')
-            users_info += f"Имя: {entry['username']}, Публичный: {pub}, Приватный: {priv}\n"
+            pub = entry.get('public_key_path', '�е указан')
+            priv = entry.get('private_key_path', '�е указан')
+            users_info += f"Им�: {entry['username']}, Публичный: {pub}, Приватный: {priv}\n"
         QMessageBox.information(self, "Пользователи", users_info)
 
     def delete_user(self):
         with open(KEYS_FILE, 'r') as f:
             data = json.load(f)
         if not data:
-            QMessageBox.information(self, "Удаление", "Список пользователей пуст.")
+            QMessageBox.information(self, "Удаление", "Спи�ок пользователей пу�т.")
             return
         usernames = [entry['username'] for entry in data]
-        username, ok = QInputDialog.getItem(self, "Удалить пользователя", "Выберите пользователя для удаления:", usernames, 0, False)
+        username, ok = QInputDialog.getItem(self, "Удалить пользовател�", "Выберите пользовател� дл� удалени�:", usernames, 0, False)
         if ok and username:
             self.delete_user_from_json(username)
-            QMessageBox.information(self, "Успех", f"Пользователь '{username}' удалён.")
+            QMessageBox.information(self, "У�пех", f"Пользователь '{username}' удалён.")
 
     def autoscan_keys(self):
-        key_type, ok = QInputDialog.getItem(self, "Тип ключа", "Выберите тип ключа для сканирования:", ["public", "private"], 0, False)
+        key_type, ok = QInputDialog.getItem(self, "Тип ключа", "Выберите тип ключа дл� �канировани�:", ["public", "private"], 0, False)
         if not ok:
             return
         found_keys = self.scan_for_keys(key_type)
         if not found_keys:
-            QMessageBox.information(self, "Результат", f"Новые {key_type} ключи не найдены.")
+            QMessageBox.information(self, "Результат", f"�овые {key_type} ключи не найдены.")
             return
         keys_list = "\n".join([f"{i+1}. {key}" for i, key in enumerate(found_keys)])
-        selected, ok = QInputDialog.getText(self, "Найденные ключи", f"Найденные {key_type} ключи:\n{keys_list}\nВведите номера для добавления (через запятую):")
+        selected, ok = QInputDialog.getText(self, "�айденные ключи", f"�айденные {key_type} ключи:\n{keys_list}\nВведите номера дл� добавлени� (через зап�тую):")
         if ok and selected:
             indices = [int(i) - 1 for i in selected.split(",")]
             for idx in indices:
                 if 0 <= idx < len(found_keys):
-                    username, ok = QInputDialog.getText(self, "Имя пользователя", f"Введите имя для ключа {found_keys[idx]}:")
+                    username, ok = QInputDialog.getText(self, "Им� пользовател�", f"Введите им� дл� ключа {found_keys[idx]}:")
                     if ok and username:
                         self.add_friend_key(username, found_keys[idx], key_type)
-            QMessageBox.information(self, "Успех", "Выбранные ключи добавлены.")
+            QMessageBox.information(self, "У�пех", "Выбранные ключи добавлены.")
 
-    ### Методы шифрования/расшифровки текста
+    ### Методы шифровани�/ра�шифровки тек�та
     def encrypt_text_gcm(self):
         text = self.text_input.toPlainText()
         if not text:
-            QMessageBox.warning(self, "Ошибка", "Введите текст для шифрования.")
+            QMessageBox.warning(self, "Ошибка", "Введите тек�т дл� шифровани�.")
             return
         public_key_path = self.get_user_to_encrypt()
         if public_key_path:
             encrypted_data = self.encrypt_text_gcm_backend(public_key_path, text)
             self.text_input.setText(str(encrypted_data))
-            QMessageBox.information(self, "Успех", "Текст зашифрован (AES-GCM).")
+            QMessageBox.information(self, "У�пех", "Тек�т зашифрован (AES-GCM).")
 
     def decrypt_text_gcm(self):
         text = self.text_input.toPlainText()
         if not text:
-            QMessageBox.warning(self, "Ошибка", "Введите зашифрованный текст.")
+            QMessageBox.warning(self, "Ошибка", "Введите зашифрованный тек�т.")
             return
         private_key_path = self.get_user_to_decrypt()
         if private_key_path:
@@ -247,11 +247,11 @@ class SCMessGUI(QMainWindow):
                 encrypted_data = eval(text)
                 decrypted_text = self.decrypt_text_gcm_backend(private_key_path, encrypted_data)
                 self.text_input.setText(decrypted_text)
-                QMessageBox.information(self, "Успех", "Текст расшифрован (AES-GCM).")
+                QMessageBox.information(self, "У�пех", "Тек�т ра�шифрован (AES-GCM).")
             except Exception as e:
-                QMessageBox.critical(self, "Ошибка", f"Не удалось расшифровать: {str(e)}")
+                QMessageBox.critical(self, "Ошибка", f"�е удало�ь ра�шифровать: {str(e)}")
 
-    ### Методы шифрования/расшифровки файлов
+    ### Методы шифровани�/ра�шифровки файлов
     def select_file(self):
         file_path, _ = QFileDialog.getOpenFileName(self, "Выберите файл")
         if file_path:
@@ -260,24 +260,24 @@ class SCMessGUI(QMainWindow):
     def encrypt_file_gcm(self):
         file_path = self.file_path_input.text()
         if not file_path or not os.path.exists(file_path):
-            QMessageBox.warning(self, "Ошибка", "Выберите существующий файл.")
+            QMessageBox.warning(self, "Ошибка", "Выберите �уще�твующий файл.")
             return
         public_key_path = self.get_user_to_encrypt()
         if public_key_path:
             encrypted_file = self.encrypt_file_gcm_backend(public_key_path, file_path)
-            QMessageBox.information(self, "Успех", f"Файл зашифрован (AES-GCM): {encrypted_file}")
+            QMessageBox.information(self, "У�пех", f"Файл зашифрован (AES-GCM): {encrypted_file}")
 
     def decrypt_file_gcm(self):
         file_path = self.file_path_input.text()
         if not file_path or not os.path.exists(file_path):
-            QMessageBox.warning(self, "Ошибка", "Выберите существующий файл.")
+            QMessageBox.warning(self, "Ошибка", "Выберите �уще�твующий файл.")
             return
         private_key_path = self.get_user_to_decrypt()
         if private_key_path:
             decrypted_file = self.decrypt_file_gcm_backend(private_key_path, file_path)
-            QMessageBox.information(self, "Успех", f"Файл расшифрован (AES-GCM): {decrypted_file}")
+            QMessageBox.information(self, "У�пех", f"Файл ра�шифрован (AES-GCM): {decrypted_file}")
 
-    ### Методы настроек
+    ### Методы на�троек
     def toggle_legacy_mode(self):
         config["legacy_mode"] = self.legacy_mode_cb.isChecked()
         self.save_config()
@@ -290,8 +290,8 @@ class SCMessGUI(QMainWindow):
         self.update_text_tab_buttons()
 
     def update_text_tab_buttons(self):
-        """Динамическое обновление кнопок на вкладке 'Текст'."""
-        # Удаляем старые кнопки Legacy и PQC, если они есть
+        """Динамиче�кое обновление кнопок на вкладке 'Тек�т'."""
+        # Удал�ем �тарые кнопки Legacy и PQC, е�ли они е�ть
         if hasattr(self, "encrypt_legacy_btn"):
             self.text_layout.removeWidget(self.encrypt_legacy_btn)
             self.encrypt_legacy_btn.deleteLater()
@@ -307,21 +307,21 @@ class SCMessGUI(QMainWindow):
             self.text_layout.removeWidget(self.decrypt_pqc_pass_btn)
             self.decrypt_pqc_pass_btn.deleteLater()
 
-        # Добавляем кнопки для Legacy режима, если он включен
+        # Добавл�ем кнопки дл� Legacy режима, е�ли он включен
         if config.get("legacy_mode", False):
-            self.encrypt_legacy_btn = QPushButton("Зашифровать текст (Legacy RSA)")
-            self.decrypt_legacy_btn = QPushButton("Расшифровать текст (Legacy RSA)")
+            self.encrypt_legacy_btn = QPushButton("Зашифровать тек�т (Legacy RSA)")
+            self.decrypt_legacy_btn = QPushButton("Ра�шифровать тек�т (Legacy RSA)")
             self.encrypt_legacy_btn.clicked.connect(self.encrypt_text_legacy)
             self.decrypt_legacy_btn.clicked.connect(self.decrypt_text_legacy)
             self.text_layout.addWidget(self.encrypt_legacy_btn)
             self.text_layout.addWidget(self.decrypt_legacy_btn)
 
-        # Добавляем кнопки для PQC режима, если он включен
+        # Добавл�ем кнопки дл� PQC режима, е�ли он включен
         if config.get("pqc_mode", False):
-            self.encrypt_pqc_btn = QPushButton("Зашифровать текст (Kyber + XChaCha20)")
-            self.decrypt_pqc_btn = QPushButton("Расшифровать текст (Kyber + XChaCha20)")
-            self.encrypt_pqc_pass_btn = QPushButton("Зашифровать текст (Kyber + XChaCha20) с паролем")
-            self.decrypt_pqc_pass_btn = QPushButton("Расшифровать текст (Kyber + XChaCha20) с паролем")
+            self.encrypt_pqc_btn = QPushButton("Зашифровать тек�т (Kyber + XChaCha20)")
+            self.decrypt_pqc_btn = QPushButton("Ра�шифровать тек�т (Kyber + XChaCha20)")
+            self.encrypt_pqc_pass_btn = QPushButton("Зашифровать тек�т (Kyber + XChaCha20) � паролем")
+            self.decrypt_pqc_pass_btn = QPushButton("Ра�шифровать тек�т (Kyber + XChaCha20) � паролем")
             self.encrypt_pqc_btn.clicked.connect(self.encrypt_text_pqc)
             self.decrypt_pqc_btn.clicked.connect(self.decrypt_text_pqc)
             self.encrypt_pqc_pass_btn.clicked.connect(self.encrypt_text_pqc_pass)
@@ -334,15 +334,15 @@ class SCMessGUI(QMainWindow):
         self.text_layout.addStretch()
 
     def update_files_tab_buttons(self):
-        """Динамическое обновление кнопок на вкладке 'Файлы'."""
-        # Добавляем основные кнопки, если их ещё нет в макете
+        """Динамиче�кое обновление кнопок на вкладке 'Файлы'."""
+        # Добавл�ем о�новные кнопки, е�ли их ещё нет в макете
         for btn in [self.encrypt_file_gcm_btn, self.decrypt_file_gcm_btn]:
-            # Получаем список виджетов в макете
+            # Получаем �пи�ок виджетов в макете
             current_widgets = [self.files_layout.itemAt(i).widget() for i in range(self.files_layout.count()) if self.files_layout.itemAt(i).widget()]
             if btn not in current_widgets:
                 self.files_layout.addWidget(btn)
 
-        # Удаляем кнопки Legacy, если они существуют, и обнуляем ссылки на них
+        # Удал�ем кнопки Legacy, е�ли они �уще�твуют, и обнул�ем ��ылки на них
         if hasattr(self, "encrypt_file_legacy_btn") and self.encrypt_file_legacy_btn is not None:
             self.files_layout.removeWidget(self.encrypt_file_legacy_btn)
             self.encrypt_file_legacy_btn.deleteLater()
@@ -353,10 +353,10 @@ class SCMessGUI(QMainWindow):
             self.decrypt_file_legacy_btn.deleteLater()
             self.decrypt_file_legacy_btn = None
 
-        # Если Legacy-режим включён, создаём и добавляем новые кнопки
+        # Е�ли Legacy-режим включён, �оздаём и добавл�ем новые кнопки
         if config.get("legacy_mode", False):
             self.encrypt_file_legacy_btn = QPushButton("Зашифровать файл (Legacy RSA)")
-            self.decrypt_file_legacy_btn = QPushButton("Расшифровать файл (Legacy RSA)")
+            self.decrypt_file_legacy_btn = QPushButton("Ра�шифровать файл (Legacy RSA)")
             self.encrypt_file_legacy_btn.clicked.connect(self.encrypt_file_legacy)
             self.decrypt_file_legacy_btn.clicked.connect(self.decrypt_file_legacy)
             self.files_layout.addWidget(self.encrypt_file_legacy_btn)
@@ -366,16 +366,16 @@ class SCMessGUI(QMainWindow):
 
     def show_info(self):
         info_text = """
-        1. Сначала сгенерируйте ключи и отправьте публичный ключ другу.
-        2. Используйте автоскан для поиска ключей или добавьте их вручную.
-        3. Для шифрования текста рекомендуется AES-GCM (поддерживает до 64 ГБ).
-        4. Для сброса удалите keys.json и ключи.
+        1. Сначала �генерируйте ключи и отправьте публичный ключ другу.
+        2. И�пользуйте авто�кан дл� пои�ка ключей или добавьте их вручную.
+        3. Дл� шифровани� тек�та рекомендует�� AES-GCM (поддерживает до 64 ГБ).
+        4. Дл� �бро�а удалите keys.json и ключи.
         5. GitHub: https://github.com/VLOD-ZDOV
-        6. Версия: 5.4
+        6. Вер�и�: 5.4
         """
-        QMessageBox.information(self, "Информация", info_text)
+        QMessageBox.information(self, "Информаци�", info_text)
 
-    ### Бэкенд-функции (интеграция существующего кода)
+    ### Б�кенд-функции (интеграци� �уще�твующего кода)
     def generate_key_pair(self, username):
         current_time = datetime.now().strftime("%Y%m%d%H%M%S")
         pub_dir = self.get_public_key_directory()
@@ -468,10 +468,10 @@ class SCMessGUI(QMainWindow):
             data = json.load(f)
             valid_users = [entry for entry in data if entry.get("public_key_path")]
         if not valid_users:
-            QMessageBox.warning(self, "Ошибка", "Нет пользователей с публичными ключами.")
+            QMessageBox.warning(self, "Ошибка", "�ет пользователей � публичными ключами.")
             return None
         usernames = [entry['username'] for entry in valid_users]
-        username, ok = QInputDialog.getItem(self, "Выбор пользователя", "Выберите пользователя для шифрования:", usernames, 0, False)
+        username, ok = QInputDialog.getItem(self, "Выбор пользовател�", "Выберите пользовател� дл� шифровани�:", usernames, 0, False)
         if ok:
             return next(entry['public_key_path'] for entry in valid_users if entry['username'] == username)
         return None
@@ -481,10 +481,10 @@ class SCMessGUI(QMainWindow):
             data = json.load(f)
             valid_users = [entry for entry in data if entry.get("private_key_path")]
         if not valid_users:
-            QMessageBox.warning(self, "Ошибка", "Нет пользователей с приватными ключами.")
+            QMessageBox.warning(self, "Ошибка", "�ет пользователей � приватными ключами.")
             return None
         usernames = [entry['username'] for entry in valid_users]
-        username, ok = QInputDialog.getItem(self, "Выбор пользователя", "Выберите пользователя для расшифровки:", usernames, 0, False)
+        username, ok = QInputDialog.getItem(self, "Выбор пользовател�", "Выберите пользовател� дл� ра�шифровки:", usernames, 0, False)
         if ok:
             return next(entry['private_key_path'] for entry in valid_users if entry['username'] == username)
         return None
@@ -554,44 +554,44 @@ class SCMessGUI(QMainWindow):
     def encrypt_text_legacy(self):
         text = self.text_input.toPlainText()
         if not text:
-            QMessageBox.warning(self, "Ошибка", "Введите текст для шифрования.")
+            QMessageBox.warning(self, "Ошибка", "Введите тек�т дл� шифровани�.")
             return
         public_key_path = self.get_user_to_encrypt()
         if public_key_path:
             encrypted = self.encrypt_text(public_key_path, text)
             self.text_input.setText(encrypted)
-            QMessageBox.information(self, "Успех", "Текст зашифрован (Legacy RSA).")
+            QMessageBox.information(self, "У�пех", "Тек�т зашифрован (Legacy RSA).")
 
     def decrypt_text_legacy(self):
         text = self.text_input.toPlainText()
         if not text:
-            QMessageBox.warning(self, "Ошибка", "Введите зашифрованный текст.")
+            QMessageBox.warning(self, "Ошибка", "Введите зашифрованный тек�т.")
             return
         private_key_path = self.get_user_to_decrypt()
         if private_key_path:
             decrypted = self.decrypt_text(private_key_path, text)
             self.text_input.setText(decrypted)
-            QMessageBox.information(self, "Успех", "Текст расшифрован (Legacy RSA).")
+            QMessageBox.information(self, "У�пех", "Тек�т ра�шифрован (Legacy RSA).")
 
     def encrypt_file_legacy(self):
         file_path = self.file_path_input.text()
         if not file_path or not os.path.exists(file_path):
-            QMessageBox.warning(self, "Ошибка", "Выберите существующий файл.")
+            QMessageBox.warning(self, "Ошибка", "Выберите �уще�твующий файл.")
             return
         public_key_path = self.get_user_to_encrypt()
         if public_key_path:
             encrypted_file = self.encrypt_file(public_key_path, file_path)
-            QMessageBox.information(self, "Успех", f"Файл зашифрован (Legacy RSA): {encrypted_file}")
+            QMessageBox.information(self, "У�пех", f"Файл зашифрован (Legacy RSA): {encrypted_file}")
 
     def decrypt_file_legacy(self):
         file_path = self.file_path_input.text()
         if not file_path or not os.path.exists(file_path):
-            QMessageBox.warning(self, "Ошибка", "Выберите существующий файл.")
+            QMessageBox.warning(self, "Ошибка", "Выберите �уще�твующий файл.")
             return
         private_key_path = self.get_user_to_decrypt()
         if private_key_path:
             decrypted_file = self.decrypt_file(private_key_path, file_path)
-            QMessageBox.information(self, "Успех", f"Файл расшифрован (Legacy RSA): {decrypted_file}")
+            QMessageBox.information(self, "У�пех", f"Файл ра�шифрован (Legacy RSA): {decrypted_file}")
 
     def encrypt_text(self, public_key_path, text):
         with open(public_key_path, 'rb') as f:
@@ -635,18 +635,18 @@ class SCMessGUI(QMainWindow):
     def encrypt_text_pqc(self):
         text = self.text_input.toPlainText()
         if not text:
-            QMessageBox.warning(self, "Ошибка", "Введите текст для шифрования.")
+            QMessageBox.warning(self, "Ошибка", "Введите тек�т дл� шифровани�.")
             return
         public_key_path = self.get_user_to_encrypt()
         if public_key_path:
             encrypted = self.encrypt_text_xchacha_rsa(public_key_path, text)
             self.text_input.setText(json.dumps(encrypted, indent=4))
-            QMessageBox.information(self, "Успех", "Текст зашифрован (Kyber + XChaCha20).")
+            QMessageBox.information(self, "У�пех", "Тек�т зашифрован (Kyber + XChaCha20).")
 
     def decrypt_text_pqc(self):
         text = self.text_input.toPlainText()
         if not text:
-            QMessageBox.warning(self, "Ошибка", "Введите зашифрованный текст.")
+            QMessageBox.warning(self, "Ошибка", "Введите зашифрованный тек�т.")
             return
         private_key_path = self.get_user_to_decrypt()
         if private_key_path:
@@ -654,35 +654,35 @@ class SCMessGUI(QMainWindow):
                 encrypted_data = json.loads(text)
                 decrypted = self.decrypt_text_xchacha_rsa(private_key_path, encrypted_data)
                 self.text_input.setText(decrypted)
-                QMessageBox.information(self, "Успех", "Текст расшифрован (Kyber + XChaCha20).")
+                QMessageBox.information(self, "У�пех", "Тек�т ра�шифрован (Kyber + XChaCha20).")
             except Exception as e:
-                QMessageBox.critical(self, "Ошибка", f"Не удалось расшифровать: {str(e)}")
+                QMessageBox.critical(self, "Ошибка", f"�е удало�ь ра�шифровать: {str(e)}")
 
     def encrypt_text_pqc_pass(self):
         text = self.text_input.toPlainText()
         if not text:
-            QMessageBox.warning(self, "Ошибка", "Введите текст для шифрования.")
+            QMessageBox.warning(self, "Ошибка", "Введите тек�т дл� шифровани�.")
             return
-        password, ok = QInputDialog.getText(self, "Пароль", "Введите пароль для шифрования:")
+        password, ok = QInputDialog.getText(self, "Пароль", "Введите пароль дл� шифровани�:")
         if ok and password:
             encrypted = self.encrypt_xchacha(text, password)
             self.text_input.setText(json.dumps(encrypted, indent=4))
-            QMessageBox.information(self, "Успех", "Текст зашифрован (XChaCha20 с паролем).")
+            QMessageBox.information(self, "У�пех", "Тек�т зашифрован (XChaCha20 � паролем).")
 
     def decrypt_text_pqc_pass(self):
         text = self.text_input.toPlainText()
         if not text:
-            QMessageBox.warning(self, "Ошибка", "Введите зашифрованный текст.")
+            QMessageBox.warning(self, "Ошибка", "Введите зашифрованный тек�т.")
             return
-        password, ok = QInputDialog.getText(self, "Пароль", "Введите пароль для расшифровки:")
+        password, ok = QInputDialog.getText(self, "Пароль", "Введите пароль дл� ра�шифровки:")
         if ok and password:
             try:
                 encrypted_data = json.loads(text)
                 decrypted = self.decrypt_xchacha(encrypted_data, password)
                 self.text_input.setText(decrypted)
-                QMessageBox.information(self, "Успех", "Текст расшифрован (XChaCha20 с паролем).")
+                QMessageBox.information(self, "У�пех", "Тек�т ра�шифрован (XChaCha20 � паролем).")
             except Exception as e:
-                QMessageBox.critical(self, "Ошибка", f"Не удалось расшифровать: {str(e)}")
+                QMessageBox.critical(self, "Ошибка", f"�е удало�ь ра�шифровать: {str(e)}")
 
     def encrypt_xchacha(self, plaintext, password):
         salt = os.urandom(16)
