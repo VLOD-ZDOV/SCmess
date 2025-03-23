@@ -4,11 +4,14 @@ from cryptography.hazmat.primitives.asymmetric import padding, rsa
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.backends import default_backend
 #from pqcrypto.kem.kyber1024 import generate_keypair, encrypt, decrypt
-import os, base64, json, sys
+import os, base64, json, sys, random
 from datetime import datetime
+import time
 import pyperclip
-
+import logging
+from concurrent.futures import ProcessPoolExecutor
 CONFIG_FILE = "config.json"
+
 # =============================================================================
 # Генерации пары ключей RSA с использованием имени пользователя и текущей даты
 # =============================================================================
@@ -19,7 +22,7 @@ def get_private_key_directory():
         return os.path.expanduser("~")
         
     elif 'ANDROID_ROOT' in os.environ:  # Termux на Android
-        # Папка Termux на Android
+        # Папка Tesrmux на Android
         return '/data/data/com.termux/files/home'
         
     else:  # Другие платформы
@@ -1105,6 +1108,236 @@ def main():
                     print("Ошибка: Введенные данные не являются корректным JSON!")
                 except Exception as e:
                     print(f"Ошибка расшифровки: {str(e)}")
-            
+        elif choice =="21":
+            print("Поздравляем вы нашли секретное меню генерации ключей математическим методом")
+            username = input("Введите имя пользователя: ")
+            priv_filename, pub_filename = generate_key_pair_math(username)
+            save_keys_to_json(username, pub_filename, priv_filename, json_file)
+
+
+
+# =============================================================================
+# Ручное генерирование RSA ключей, скоро будет код на C который будет генерировать числа
+# =============================================================================
+
+
+
+logging.basicConfig(level=logging.DEBUG,
+                    format='%(asctime)s - %(levelname)s - %(message)s')
+
+def fmt_num(n, max_digits=20):
+    """Форматирует число для логирования: если число слишком длинное, выводит первые и последние цифры."""
+    s = str(n)
+    if len(s) > max_digits:
+        return f"{s[:10]}...{s[-10:]}"
+    return s
+
+def miller_rabin_test(n, k=5):
+    logging.debug("Начало теста Миллера-Рабина для n=%s с k=%d", fmt_num(n), k)
+    if n == 2 or n == 3:
+        logging.debug("Число %d является простым (2 или 3)", n)
+        return True
+    if n < 2 or n % 2 == 0:
+        logging.debug("Число %d не является простым (меньше 2 или чётное)", n)
+        return False
+    s, d = 0, n - 1
+    while d % 2 == 0:
+        s += 1
+        d //= 2
+    logging.debug("n-1 = 2^%d * %s", s, fmt_num(d))
+    for i in range(k):
+        a = random.randint(2, n - 2)
+        x = pow(a, d, n)
+        #logging.debug("Раунд %d: a=%s, x=%s", i + 1, fmt_num(a), fmt_num(x))
+        "Раунд %d: a=%s, x=%s", i + 1, fmt_num(a), fmt_num(x)
+        if x == 1 or x == n - 1:
+            continue
+        for j in range(s - 1):
+            x = pow(x, 2, n)
+            logging.debug("  Вложенный цикл %d: x=%s", j + 1, fmt_num(x))
+            if x == n - 1:
+                break
+        else:
+            logging.debug("Составное число обнаружено на раунде %d", i + 1)
+            return False
+    logging.debug("Число %s прошло тест Миллера-Рабина", fmt_num(n))
+    return True
+
+def generate_prime(bits=512):
+    """Генерация простого числа заданной битовой длины, начиная с 2^(bits-1)."""
+    logging.debug("Начало генерации простого числа с %d битами", bits)
+    min_value = 1 << (bits - 1)  # 2^(bits-1)
+    max_value = (1 << bits) - 1  # 2^bits - 1
+    attempts = 0
+    while True:
+        attempts += 1
+        num = random.randint(min_value, max_value)
+        logging.debug("Попытка %d: сгенерировано число %s", attempts, fmt_num(num))
+        if miller_rabin_test(num):
+            logging.info("Простое число найдено после %d попыток: %s", attempts, fmt_num(num))
+            return num
+
+def extended_gcd(a, b):
+    logging.debug("Вызов extended_gcd(a=%d, b=%d)", a, b)
+    x, y, x1, y1 = 0, 1, 1, 0
+    while b:
+        q = a // b
+        logging.debug("a=%d, b=%d, q=%d", a, b, q)
+        a, b = b, a % b
+        x, x1 = x1 - q * x, x
+        y, y1 = y1 - q * y, y
+        logging.debug("Обновление: a=%d, b=%d, x=%d, x1=%d, y=%d, y1=%d", a, b, x, x1, y, y1)
+    logging.debug("Возврат из extended_gcd: gcd=%d, x=%d, y=%d", a, x1, y1)
+    return a, x1, y1
+
+def mod_inverse(a, m):
+    logging.debug("Вычисление модульного обратного элемента для a=%d, m=%d", a, m)
+    gcd, x, _ = extended_gcd(a, m)
+    if gcd != 1:
+        error_msg = f"Обратного элемента не существует для a={a} и m={m}"
+        logging.error(error_msg)
+        raise ValueError(error_msg)
+    result = x % m
+    logging.debug("Модульный обратный элемент: %s", fmt_num(result))
+    return result
+
+def int_to_der(n):
+    logging.debug("Преобразование целого числа %s в DER", fmt_num(n))
+    if n == 0:
+        return b'\x02\x01\x00'
+    n_bytes = n.to_bytes((n.bit_length() + 7) // 8, byteorder='big')
+    if n_bytes[0] & 0x80:
+        n_bytes = b'\x00' + n_bytes
+    length = len(n_bytes)
+    if length < 128:
+        result = b'\x02' + bytes([length]) + n_bytes
+    else:
+        length_bytes = length.to_bytes((length.bit_length() + 7) // 8, 'big')
+        result = b'\x02' + bytes([0x80 | len(length_bytes)]) + length_bytes + n_bytes
+    logging.debug("DER-представление: %s", result.hex()[:60] + "...")
+    return result
+
+def encode_der_sequence(items):
+    logging.debug("Кодирование DER последовательности с %d элементами", len(items))
+    content = b''.join(items)
+    length = len(content)
+    if length < 128:
+        result = b'\x30' + bytes([length]) + content
+    else:
+        length_bytes = length.to_bytes((length.bit_length() + 7) // 8, 'big')
+        result = b'\x30' + bytes([0x80 | len(length_bytes)]) + length_bytes + content
+    logging.debug("DER-последовательность: %s", result.hex()[:60] + "...")
+    return result
+
+def encode_public_key_der(n, e):
+    logging.debug("Кодирование публичного ключа DER")
+    n_der = int_to_der(n)
+    e_der = int_to_der(e)
+    sequence = encode_der_sequence([n_der, e_der])
+    logging.debug("Публичный ключ DER: %s", sequence.hex()[:60] + "...")
+    return sequence
+
+def encode_private_key_der(n, e, d, p, q):
+    logging.debug("Кодирование приватного ключа DER")
+    version = int_to_der(0)  # Версия 0
+    n_der = int_to_der(n)
+    e_der = int_to_der(e)
+    d_der = int_to_der(d)
+    p_der = int_to_der(p)
+    q_der = int_to_der(q)
+    dp = int_to_der(d % (p - 1))
+    dq = int_to_der(d % (q - 1))
+    qinv = int_to_der(mod_inverse(q, p))
+    sequence = encode_der_sequence([version, n_der, e_der, d_der, p_der, q_der, dp, dq, qinv])
+    logging.debug("Приватный ключ DER: %s", sequence.hex()[:60] + "...")
+    return sequence
+
+def der_to_pem(der_data, key_type):
+    logging.debug("Преобразование DER в PEM для типа ключа '%s'", key_type)
+    base64_data = base64.b64encode(der_data).decode('ascii')
+    lines = [base64_data[i:i+64] for i in range(0, len(base64_data), 64)]
+    pem_content = '\n'.join(lines)
+    if key_type == "public":
+        pem = f"-----BEGIN PUBLIC KEY-----\n{pem_content}\n-----END PUBLIC KEY-----\n"
+    elif key_type == "private":
+        pem = f"-----BEGIN RSA PRIVATE KEY-----\n{pem_content}\n-----END RSA PRIVATE KEY-----\n"
+    else:
+        error_msg = f"Неизвестный тип ключа: {key_type}"
+        logging.error(error_msg)
+        raise ValueError(error_msg)
+    logging.debug("PEM формат:\n%s", pem[:100] + "...")
+    return pem
+"""
+def get_public_key_directory():
+    pub_dir = os.path.join(os.getcwd(), "public_keys")
+    os.makedirs(pub_dir, exist_ok=True)
+    logging.debug("Директория публичных ключей: %s", pub_dir)
+    return pub_dir
+
+def get_private_key_directory():
+    priv_dir = os.path.join(os.getcwd(), "private_keys")
+    os.makedirs(priv_dir, exist_ok=True)
+    logging.debug("Директория приватных ключей: %s", priv_dir)
+    return priv_dir
+"""
+def generate_key_pair_math(username):
+    logging.info("Генерация пары ключей для пользователя: %s", username)
+    current_time = datetime.now().strftime("%Y%m%d%H%M%S")
+    pub_dir = get_public_key_directory()
+    priv_dir = get_private_key_directory()
+    priv_filename = os.path.join(priv_dir, f"RSA_{username}_priv_{current_time}.pem")
+    pub_filename = os.path.join(pub_dir, f"RSA_{username}_pub_{current_time}.pem")
+
+    user_bits = input("Введите битность ключа: 2048/4096/8192. Рекомендуется 4096 для безопасности, 2048 для скорости: ")
+
+    if user_bits == "":
+        bits = 4096
+    else:
+        try:
+            bits = int(user_bits)
+            if bits not in [2048, 4096, 8192]:
+                raise ValueError("Недопустимое значение. Используйте 2048, 4096 или 8192.")
+        except ValueError:
+            print("Ошибка ввода. По умолчанию используется 4096.")
+            bits = 4096
+    start_time = time.perf_counter()
+    half_bits = bits // 2
+    logging.debug("Генерация простых чисел p и q с %d битами каждая", half_bits)
+    with ProcessPoolExecutor(max_workers=2) as executor:
+        futures = [executor.submit(generate_prime, half_bits) for _ in range(2)]
+        p, q = [future.result() for future in futures]
+
+    logging.info("Простые числа: p=%s, q=%s", fmt_num(p), fmt_num(q))
+    n = p * q
+    phi = (p - 1) * (q - 1)
+    e = 65537
+    logging.debug("Вычисляем d: n=%s, phi=%s, e=%d", fmt_num(n), fmt_num(phi), e)
+    d = mod_inverse(e, phi)
+    logging.info("Параметры RSA: n=%s, e=%d, d=%s", fmt_num(n), e, fmt_num(d))
+
+    public_key_der = encode_public_key_der(n, e)
+    private_key_der = encode_private_key_der(n, e, d, p, q)
+
+    public_key_pem = der_to_pem(public_key_der, "public")
+    private_key_pem = der_to_pem(private_key_der, "private")
+
+    with open(pub_filename, 'w') as pub_file:
+        pub_file.write(public_key_pem)
+    with open(priv_filename, 'w') as priv_file:
+        priv_file.write(private_key_pem)
+
+    logging.info("Публичный ключ сохранен в: %s", pub_filename)
+    logging.info("Приватный ключ сохранен в: %s", priv_filename)
+    end_time = time.perf_counter()
+    elapsed_time = end_time - start_time
+    print(f"Время выполнения: {elapsed_time} секунд")
+    return priv_filename, pub_filename
+
+
+
+
+
+
+
 if __name__ == "__main__":
     main()
