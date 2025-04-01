@@ -1,5 +1,4 @@
-// crypto_app.c
-// Пример компиляции для Linux:
+// Компиляция для Linux:
 // gcc crypto_app.c -o crypto_app -lssl -lcrypto -lcjson
 // Для Windows необходимо правильно настроить пути к OpenSSL и cJSON.
 
@@ -23,7 +22,7 @@
 #include <openssl/rand.h>
 #include <openssl/err.h>
 
-#include <cjson/cJSON.h>  // используем новую форму подключения
+#include <cjson/cJSON.h>  
 
 // Размеры констант
 #define AES_KEYLEN 32   // 256 бит
