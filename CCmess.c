@@ -1,5 +1,5 @@
 // Компиляция для Linux:
-// gcc crypto_app.c -o crypto_app -lssl -lcrypto -lcjson
+// gcc CCmess.c -o crypto_app -lssl -lcrypto -lcjson
 // Для Windows необходимо правильно настроить пути к OpenSSL и cJSON.
 
 #include <stdio.h>
