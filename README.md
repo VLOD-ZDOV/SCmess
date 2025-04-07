@@ -17,7 +17,9 @@ SCmess — это инструмент для шифрования и расши
 🔄 Переключение между режимами Legacy (RSA) и PQC (Post-Quantum Cryptography)
 
 ## 📦 Установка
-
+CCmess-gui
+qmake CCmess.pro
+make
 Перед использованием установите необходимые зависимости:
 
 pip install cryptography pyperclip 
