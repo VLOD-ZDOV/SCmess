@@ -4,22 +4,21 @@
 #include <QMainWindow>
 #include <QTextEdit>
 #include <QLineEdit>
+#include <QPushButton>
+#include <QCheckBox>
+#include <QComboBox>
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
-
 public:
-    explicit MainWindow(QWidget *parent = nullptr);
+    MainWindow(QWidget *parent = nullptr);
+    void logMessage(const QString &message);
 
 private:
-    QWidget *createKeysTab();
-    QWidget *createTextTab();
-    QWidget *createFileTab();
-
-    QTextEdit *textEdit;
-    QLineEdit *filePathEdit;
-
-private slots:
+    QWidget* createKeysTab();
+    QWidget* createTextTab();
+    QWidget* createFileTab();
+    QWidget* createLogsTab();
     void createKeys();
     void addKey();
     void showUsers();
@@ -30,6 +29,10 @@ private slots:
     void chooseFile();
     void encryptFile();
     void decryptFile();
+
+    QTextEdit *textEdit;
+    QLineEdit *filePathEdit;
+    QTextEdit *logEdit;
 };
 
-#endif
+#endif // MAINWINDOW_H
