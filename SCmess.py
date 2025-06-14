@@ -53,7 +53,7 @@ def info():
     3. Для шифрования текста лучше использовать GCM метод, тк он имеет поддержку мульти строк и шифрует до 64гб текста
     4. Чтобы обнулить программу удалите файл keys.json и по желанию ключи
     5. GitHub создателя: https://github.com/VLOD-ZDOV
-    6. Версия - 5.4
+    6. Версия - 6.0
     """
     print(info)
     
@@ -333,7 +333,25 @@ def toggle_pqc_mode():
 # =============================================================================
 
 def print_menu():
-    print("""
+    legacy_menu = ""
+    if config.get('legacy_mode', False):
+        legacy_menu = """
+    12. Зашифровать текст c использованием Legacy RSA
+    13. Расшифровать текст c использованием Legacy RSA
+    14. Зашифровать файл c использованием Legacy RSA
+    15. Расшифровать файл c использованием Legacy RSA
+    """
+
+    pqc_menu = ""
+    if config.get('pqc_mode', False):
+        pqc_menu = """
+    18. Зашифровать текст (Kyber + XChaCha20)
+    19. Расшифровать текст (Kyber + XChaCha20)
+    20. Зашифровать текст (XChaCha20+RSA) для друга
+    21. Расшифровать текст (XChaCha20+RSA) своим ключом
+    """
+
+    menu = """
     --- Главное меню ---
     1. Создать пару ключей и сохранить в JSON
     2. Зашифровать текст c использованием AES-GCM
@@ -349,24 +367,111 @@ def print_menu():
     {legacy_menu}
     16. {toggle_pqc}
     {pqc_menu}
+    17. Начать переписку
     0. Выйти из программы
     """.format(
         toggle_legacy="Выключить Legacy-режим" if config.get('legacy_mode', False) else "Включить Legacy-режим",
-        legacy_menu="" if not config.get('legacy_mode', False) else """
-    12. Зашифровать текст c использованием Legacy RSA
-    13. Расшифровать текст c использованием Legacy RSA
-    14. Зашифровать файл c использованием Legacy RSA
-    15. Расшифровать файл c использованием Legacy RSA
-    """,
+        legacy_menu=legacy_menu,
         toggle_pqc="Выключить PQC-режим" if config.get('pqc_mode', False) else "Включить PQC-режим",
-        pqc_menu="" if not config.get('pqc_mode', False) else """
-    17. Зашифровать текст (Kyber + XChaCha20)
-    18. Расшифровать текст (Kyber + XChaCha20)
-    19. Зашифровать текст (Kyber + XChaCha20) пароль - ключ друга
-    20. Расшифровать текст (Kyber + XChaCha20) пароль - ваш ключ
-    """
-    ))
+        pqc_menu=pqc_menu
+    )
+    print(menu)
 
+# =============================================================================
+# Функция постоянной переписки
+# =============================================================================
+
+def chat_mode(json_file):
+    # Выбор режима шифрования
+    print("Выберите режим шифрования: 1. AES-GCM  2. RSA")
+    mode_choice = input("Введите номер режима: ")
+    if mode_choice == "1":
+        mode = "AES-GCM"
+    elif mode_choice == "2":
+        mode = "RSA"
+    else:
+        print("Неверный выбор режима.")
+        return
+
+    # Выбор публичного ключа для шифрования
+    public_key_path, user = get_user_to_encrypt(json_file)
+    if not public_key_path:
+        print("Публичный ключ не выбран.")
+        return
+
+    # Выбор приватного ключа для расшифровки
+    private_key_path, _ = get_user_to_decrypt(json_file)
+    if not private_key_path:
+        print("Приватный ключ не выбран. Расшифровка будет недоступна.")
+
+    # Проверка конфигурации для оповещений о копировании
+    if config.get('copy_notifications', False):
+        copy_notifications = True
+    else:
+        copy_choice = input("Включить оповещения о копировании текста? (д/н): ").strip().lower()
+        copy_notifications = copy_choice in ["д", "y"]
+        config['copy_notifications'] = copy_notifications
+        with open("config.json", 'w') as config_file:
+            json.dump(config, config_file, indent=4)
+
+    print(f"Выбран режим: {mode}, пользователь: {user['username']}")
+    print("Введите сообщения для отправки или вставьте зашифрованные сообщения для расшифровки.")
+    print("Для завершения ввода сообщения используйте Ctrl+D (Linux/Mac) или Ctrl+Z (Windows).")
+    print("Для выхода из режима переписки нажмите Ctrl+C.")
+
+    while True:
+        try:
+            message = get_multiline_input()
+
+            if mode == "AES-GCM":
+                if message.strip().startswith("{'aes_key':"):
+                    if private_key_path:
+                        try:
+                            encrypted_data = eval(message)  # Предполагается, что безопасно в данном контексте
+                            decrypted_text = decrypt_text_gcm(private_key_path, encrypted_data)
+                            print(f"Расшифрованное сообщение: {decrypted_text}")
+                        except Exception as e:
+                            print(f"Ошибка расшифровки: {str(e)}")
+                    else:
+                        print("Приватный ключ недоступен для расшифровки.")
+                else:
+                    encrypted_data = encrypt_text_gcm(public_key_path, message)
+                    print(f"Зашифрованное сообщение: {encrypted_data}")
+                    if copy_notifications:
+                        copy_choice = input("Скопировать зашифрованный текст в буфер обмена? (д/н): ").strip().lower()
+                        if copy_choice in ["д", "y"]:
+                            pyperclip.copy(str(encrypted_data))
+                            print("Зашифрованный текст скопирован в буфер обмена.")
+
+            elif mode == "RSA":
+                action = input("Выберите действие (e - зашифровать, d - расшифровать): ").strip().lower()
+                if action not in ["e", "d"]:
+                    print("Неверное действие. Введите 'e' для шифрования или 'd' для расшифровки.")
+                    continue
+
+                if action == "d":
+                    if private_key_path:
+                        try:
+                            decrypted_text = decrypt_text(private_key_path, message)
+                            print(f"Расшифрованное сообщение: {decrypted_text}")
+                        except Exception as e:
+                            print(f"Ошибка расшифровки: {str(e)}")
+                    else:
+                        print("Приватный ключ недоступен для расшифровки.")
+                else:  # action == "e"
+                    encrypted_message = encrypt_text(public_key_path, message)
+                    print(f"Зашифрованное сообщение: {encrypted_message}")
+                    if copy_notifications:
+                        copy_choice = input("Скопировать зашифрованный текст в буфер обмена? (д/н): ").strip().lower()
+                        if copy_choice in ["д", "y"]:
+                            pyperclip.copy(encrypted_message)
+                            print("Зашифрованный текст скопирован в буфер обмена.")
+
+        except KeyboardInterrupt:
+            print("\nВыход из режима переписки.")
+            break
+        except Exception as e:
+            print(f"Ошибка: {str(e)}")
 
 # =============================================================================
 # Функция для выбора пользователя с приватным ключом для расшифровки.
@@ -859,260 +964,203 @@ def decrypt_text_xchacha_rsa(private_key_path, encrypted_data):
 def main():
     json_file = "keys.json"
     global config
+
+    # Загрузка конфигурации
     try:
         with open("config.json", 'r') as config_file:
             config = json.load(config_file)
     except (FileNotFoundError, json.JSONDecodeError):
-        config = {"pqc_mode": False}
+        config = {"pqc_mode": False, "legacy_mode": False}
 
-    # Проверяем, существует ли файл keys.json
+    # Создание файла ключей, если не существует
     if not os.path.exists(json_file):
         with open(json_file, 'w') as file:
-            json.dump([], file)  # Создаем пустой JSON файл
+            json.dump([], file)
+
+    def handle_choice_1():
+        username = input("Введите имя пользователя: ")
+        priv, pub = generate_key_pair(username)
+        save_keys_to_json(username, pub, priv, json_file)
+
+    def handle_choice_2():
+        text = get_multiline_input()
+        public_key_path, _ = get_user_to_encrypt(json_file)
+        if public_key_path:
+            encrypted = encrypt_text_gcm(public_key_path, text)
+            print(f"Зашифрованные данные (AES-GCM): {encrypted}")
+            if input("Скопировать в буфер? (д/н): ").strip().lower() in ["д", "y"]:
+                pyperclip.copy(str(encrypted))
+                print("Скопировано в буфер обмена.")
+
+    def handle_choice_3():
+        private_key_path, _ = get_user_to_decrypt(json_file)
+        if private_key_path:
+            data = eval(input("Введите зашифрованные данные (dict): "))
+            print("Расшифрованный текст:", decrypt_text_gcm(private_key_path, data))
+
+    def handle_choice_4():
+        public_key_path, _ = get_user_to_encrypt(json_file)
+        if public_key_path:
+            file_path = input("Путь к файлу: ")
+            result = encrypt_file_gcm(public_key_path, file_path)
+            print(f"Сохранено: {result}")
+
+    def handle_choice_5():
+        private_key_path, _ = get_user_to_decrypt(json_file)
+        if not private_key_path:
+            return
+        dirs = input("Директории (через запятую): ").split(',')
+        found = find_encrypted_files(dirs)
+        if not found:
+            print("Файлы не найдены.")
+            return
+        for i, f in enumerate(found): print(f"{i+1}. {f}")
+        index = int(input("Выберите файл: ")) - 1
+        if 0 <= index < len(found):
+            result = decrypt_file_gcm(private_key_path, found[index])
+            print(f"Сохранено: {result}")
+
+    def handle_choice_6():
+        username = input("Имя пользователя: ")
+        path = input("Путь к ключу друга: ")
+        add_friend_key(username, path, json_file)
+
+    def handle_choice_7():
+        with open(json_file) as f:
+            for entry in json.load(f):
+                print(f"Имя: {entry['username']}, Публичный: {entry.get('public_key_path')}, Приватный: {entry.get('private_key_path')}")
+
+    def handle_choice_8():
+        username = input("Введите имя пользователя для удаления: ")
+        delete_user_from_json(username, json_file)
+
+    def handle_choice_9():
+        key_type = input("Тип ключей (public/private): ").strip().lower()
+        if key_type not in ['public', 'private', '1', '2']:
+            print("Неверный тип ключа.")
+            return
+        if key_type == '1': key_type = 'public'
+        if key_type == '2': key_type = 'private'
+        keys = scan_for_keys(json_file, key_type)
+        if not keys:
+            print("Ключи не найдены.")
+            return
+        for i, path in enumerate(keys): print(f"{i+1}. {path}")
+        selected = input("Номера ключей: ").split(',')
+        indices = set()
+        for part in selected:
+            if '-' in part:
+                start, end = map(int, part.split('-'))
+                indices.update(range(start-1, end))
+            else:
+                indices.add(int(part)-1)
+        for i in sorted(indices):
+            if 0 <= i < len(keys):
+                username = input(f"Имя пользователя для ключа {keys[i]}: ").strip()
+                if username:
+                    add_friend_key(username, keys[i], key_type, json_file)
+
+    def handle_choice_10(): info()
+    def handle_choice_11(): toggle_legacy_mode()
+    def handle_choice_16():
+        toggle_pqc_mode()
+        print("Режим PQC:", config['pqc_mode'])
+    def handle_choice_17(): chat_mode(json_file)
+
+    def handle_choice_12():  # Legacy RSA Encrypt
+        text = input("Введите текст: ")
+        public_key_path, _ = get_user_to_encrypt(json_file)
+        if public_key_path:
+            encrypted = encrypt_text(public_key_path, text)
+            print("Зашифрованный текст:", encrypted)
+            if input("Скопировать в буфер? (д/н): ").strip().lower() in ["д", "y"]:
+                pyperclip.copy(encrypted)
+
+    def handle_choice_13():
+        private_key_path, _ = get_user_to_decrypt(json_file)
+        if private_key_path:
+            encrypted = input("Введите зашифрованный текст: ")
+            print("Расшифрованный текст:", decrypt_text(private_key_path, encrypted))
+
+    def handle_choice_14():
+        public_key_path, _ = get_user_to_encrypt(json_file)
+        if public_key_path:
+            file = input("Путь к файлу: ")
+            print("Сохранено:", encrypt_file(public_key_path, file))
+
+    def handle_choice_15():
+        private_key_path, _ = get_user_to_decrypt(json_file)
+        if not private_key_path:
+            return
+        dirs = input("Пути к директориям: ").split(',')
+        found = find_encrypted_files(dirs)
+        if not found:
+            print("Файлы не найдены.")
+            return
+        for i, f in enumerate(found): print(f"{i+1}. {f}")
+        index = int(input("Выберите файл: ")) - 1
+        if 0 <= index < len(found):
+            print("Сохранено:", decrypt_file(private_key_path, found[index]))
+
+    def handle_choice_18():
+        plaintext = input("Введите текст: ")
+        password = input("Введите пароль: ")
+        result = encrypt_xchacha(plaintext, password)
+        print(json.dumps(result, indent=4))
+
+    def handle_choice_19():
+        print("Вставьте JSON-данные, завершите Ctrl+D / Ctrl+Z:")
+        try:
+            encrypted_json = ''.join(sys.stdin)
+            password = input("Введите пароль: ")
+            result = decrypt_xchacha(json.loads(encrypted_json), password)
+            print("Расшифрованный текст:", result)
+        except Exception as e:
+            print("Ошибка:", e)
+
+    def handle_choice_20():
+        text = get_multiline_input()
+        public_key_path, user = get_user_to_encrypt(json_file)
+        if public_key_path:
+            result = encrypt_text_xchacha_rsa(public_key_path, text)
+            print(f"Для {user['username']}:")
+            print(json.dumps(result, indent=4))
+
+    def handle_choice_21():
+        private_key_path, user = get_user_to_decrypt(json_file)
+        if private_key_path:
+            data = get_multiline_input()
+            try:
+                decrypted = decrypt_text_xchacha_rsa(private_key_path, json.loads(data))
+                print(f"Расшифрованный текст для {user['username']}:\n{decrypted}")
+            except Exception as e:
+                print(f"Ошибка расшифровки: {e}")
+
+    def handle_choice_22():
+        print("Секретное меню: математическая генерация")
+        username = input("Имя пользователя: ")
+        priv, pub = generate_key_pair_math(username)
+        save_keys_to_json(username, pub, priv, json_file)
+
+    handlers = {
+        "1": handle_choice_1, "2": handle_choice_2, "3": handle_choice_3,
+        "4": handle_choice_4, "5": handle_choice_5, "6": handle_choice_6,
+        "7": handle_choice_7, "8": handle_choice_8, "9": handle_choice_9,
+        "10": handle_choice_10, "11": handle_choice_11, "12": handle_choice_12,
+        "13": handle_choice_13, "14": handle_choice_14, "15": handle_choice_15,
+        "16": handle_choice_16, "17": handle_choice_17, "18": handle_choice_18,
+        "19": handle_choice_19, "20": handle_choice_20, "21": handle_choice_21,
+        "22": handle_choice_22, "0": lambda: exit("Выход.")
+    }
 
     while True:
         print_menu()
-        choice = input("Выберите действие (0-13): ")
-
-        if choice == "1":
-            username = input("Введите имя пользователя: ")
-            priv_filename, pub_filename = generate_key_pair(username)
-            save_keys_to_json(username, pub_filename, priv_filename, json_file)
-
-
-        elif choice == "2":
-            # Получение текста от пользователя gcm+aes
-            text_to_encrypt = get_multiline_input()
-
-            # Получение пользователя для шифрования
-            public_key_path, _ = get_user_to_encrypt(json_file)
-            if public_key_path:
-                encrypted_data = encrypt_text_gcm(public_key_path, text_to_encrypt)
-                print(f"Зашифрованные данные (AES-GCM): {encrypted_data}")
-
-                # Добавляем возможность скопировать зашифрованный текст
-                copy_choice = input("Скопировать зашифрованный текст в буфер обмена? (д/н): ").strip().lower()
-                if copy_choice in ["д", "y"]:
-                    pyperclip.copy(str(encrypted_data))
-                    print("Зашифрованный текст скопирован в буфер обмена.")
-
-
-        elif choice == "3":
-            # Получение пользователя для расшифровки gcm+aes
-            private_key_path, _ = get_user_to_decrypt(json_file)
-            if private_key_path:
-                encrypted_data_str = input("Введите зашифрованные данные (как словарь): ")
-                encrypted_data = eval(encrypted_data_str)
-                decrypted_text = decrypt_text_gcm(private_key_path, encrypted_data)
-                if decrypted_text:
-                    print(f"Расшифрованный текст: {decrypted_text}")
-
-        elif choice == "4":
-            # Получение пользователя для шифрования файла с использованием AES-GCM
-            public_key_path, _ = get_user_to_encrypt(json_file)
-            if public_key_path:
-                file_to_encrypt = input("Введите путь к файлу для шифрования: ")
-                encrypted_file_path = encrypt_file_gcm(public_key_path, file_to_encrypt)
-                print(f"Файл зашифрован (AES-GCM) и сохранен как: {encrypted_file_path}")
-
-        elif choice == "5":
-            # Получение пользователя для расшифровки файла с использованием AES-GCM
-            private_key_path, _ = get_user_to_decrypt(json_file)
-            if private_key_path:
-                directories = input("Введите пути к директориям для поиска зашифрованных файлов, разделенные запятой: ").split(',')
-                encrypted_files = find_encrypted_files(directories)
-                
-                if not encrypted_files:
-                    print("Зашифрованные файлы не найдены.")
-                    continue
-
-                print("Найденные зашифрованные файлы (AES-GCM):")
-                for idx, file in enumerate(encrypted_files):
-                    print(f"{idx + 1}. {file}")
-
-                file_choice = int(input("Выберите файл для расшифровки (введите номер): ")) - 1
-
-                if file_choice < 0 or file_choice >= len(encrypted_files):
-                    print("Неверный выбор.")
-                    continue
-
-                decrypted_file_path = decrypt_file_gcm(private_key_path, encrypted_files[file_choice])
-                print(f"Файл расшифрован (AES-GCM) и сохранен как: {decrypted_file_path}")
-
-        elif choice == "6":
-            username = input("Введите имя пользователя, для которого добавляется публичный ключ друга: ")
-            friend_pub_key_path = input("Введите путь к файлу с публичным ключом друга: ")
-            add_friend_key(username, friend_pub_key_path, json_file)
-        elif choice == "7":
-            with open(json_file, 'r') as file:
-                data = json.load(file)
-                print("Список пользователей:")
-                for entry in data:
-                    public_key = entry.get('public_key_path', 'Не указан')
-                    private_key = entry.get('private_key_path', 'Не указан')
-                    print(f"Имя пользователя: {entry['username']}, Путь к публичному ключу: {public_key}, Путь к приватному ключу: {private_key}")
-
-        elif choice == "8":
-            username = input("Введите имя пользователя для удаления из JSON файла: ")
-            delete_user_from_json(username, json_file)
-        elif choice == "9":
-            key_type = input("Какой тип ключей вы хотите добавить? (public/private): ").strip().lower()
-            if key_type not in ['public', 'private', '1', '2']:
-                print("Неверный тип ключа. Укажите 'public' (1) или 'private' (2).")
-                continue
-            if key_type == '1':
-                key_type = 'public'
-            if key_type == '2':
-                key_type = 'private'
-            found_keys = scan_for_keys(json_file, key_type)
-            if not found_keys:
-                print(f"Новые {key_type} ключи не найдены.")
-            else:
-                print(f"Найденные новые {key_type} ключи:")
-                for idx, key_path in enumerate(found_keys):
-                    print(f"{idx + 1}. {key_path}")
-                selected_keys = input("Введите номера ключей для добавления (через запятую или диапазон, например 1,3-5): ")
-                indices_to_add = set()
-                for part in selected_keys.split(','):
-                    if '-' in part:
-                        start, end = map(int, part.split('-'))
-                        indices_to_add.update(range(start - 1, end))
-                    else:
-                        indices_to_add.add(int(part) - 1)
-                for idx in sorted(indices_to_add):
-                    if 0 <= idx < len(found_keys):
-                        key_path = found_keys[idx]
-                        username = input(f"Введите имя пользователя для ключа {key_path}: ").strip()
-                        if not username:
-                            print("Имя пользователя не может быть пустым. Ключ не будет добавлен.")
-                            continue
-                        add_friend_key(username, key_path, key_type, json_file)
-        elif choice == "10":
-            info()
-        elif choice == "11":
-            toggle_legacy_mode()
-        elif choice == "0":
-            print("Выход из программы.")
-            break
-
-        elif choice == "12":
-            # Запрос текста для шифрования
-            print("Введите текст для шифрования:")
-            text_to_encrypt = input()
-
-            # Получение пользователя для шифрования
-            public_key_path, _ = get_user_to_encrypt(json_file)
-            if public_key_path:
-                encrypted_message = encrypt_text(public_key_path, text_to_encrypt)
-                print(f"Зашифрованный текст: {encrypted_message}")
-
-                # Добавляем возможность скопировать зашифрованный текст
-                copy_choice = input("Скопировать зашифрованный текст в буфер обмена? (д/н): ").strip().lower()
-                if copy_choice in ["д", "y"]:
-                    pyperclip.copy(encrypted_message)
-                    print("Зашифрованный текст скопирован в буфер обмена.")
-
-
-        elif choice == "13":
-            # Получение пользователя для расшифровки
-            private_key_path, _ = get_user_to_decrypt(json_file)
-            if private_key_path:
-                encrypted_message = input("Введите зашифрованный текст: ")
-                decrypted_message = decrypt_text(private_key_path, encrypted_message)
-                if decrypted_message:
-                    print(f"Расшифрованный текст: {decrypted_message}")
-        elif choice == "14":
-            # Получение пользователя для шифрования файла rsa
-            public_key_path, _ = get_user_to_encrypt(json_file)
-            if public_key_path:
-                file_to_encrypt = input("Введите путь к файлу для шифрования: ")
-                encrypted_file_path = encrypt_file(public_key_path, file_to_encrypt)
-                print(f"Файл зашифрован и сохранен как: {encrypted_file_path}")
-
-        elif choice == "15":
-            # Получение пользователя для расшифровки файла rsa
-            private_key_path, _ = get_user_to_decrypt(json_file)
-            if private_key_path:
-                directories = input("Введите пути к директориям для поиска зашифрованных файлов, разделенные запятой: ").split(',')
-                encrypted_files = find_encrypted_files(directories)
-
-                if not encrypted_files:
-                    print("Зашифрованные файлы не найдены.")
-                    continue
-
-                print("Найденные зашифрованные файлы:")
-                for idx, file in enumerate(encrypted_files):
-                    print(f"{idx + 1}. {file}")
-
-                file_choice = int(input("Выберите файл для расшифровки (введите номер): ")) - 1
-
-                if file_choice < 0 or file_choice >= len(encrypted_files):
-                    print("Неверный выбор.")
-                    continue
-
-                decrypted_file_path = decrypt_file(private_key_path, encrypted_files[file_choice])
-                print(f"Файл расшифрован и сохранен как: {decrypted_file_path}")
-
-        
-        elif choice == "16":
-            toggle_pqc_mode()  # Предполагается, что эта функция меняет config['pqc_mode']
-            print(f"Режим PQC: {config['pqc_mode']}")
-        
-        elif config.get('pqc_mode', False) and choice == "17":
-            # Только шифрование
-            plaintext = input("Введите текст для шифрования: ")
-            password = input("Введите пароль: ")
-            encrypted_data = encrypt_xchacha(plaintext, password)
-            encrypted_json = json.dumps(encrypted_data, indent=4)
-            print("Зашифрованные данные:", encrypted_json)
-        
-        elif config.get('pqc_mode', False) and choice == "18":
-            # Расшифровка с многострочным вводом до EOF
-            print("Введите зашифрованные данные в формате JSON (включает ciphertext, nonce, salt).")
-            print("Для завершения ввода нажмите Ctrl+D (Unix) или Ctrl+Z (Windows) и Enter:")
-            lines = []
-            try:
-                for line in sys.stdin:
-                    lines.append(line)
-                encrypted_json = ''.join(lines)
-                password = input("Введите пароль: ")
-                try:
-                    encrypted_data = json.loads(encrypted_json)
-                    decrypted_text = decrypt_xchacha(encrypted_data, password)
-                    print("Расшифрованный текст:", decrypted_text)
-                except json.JSONDecodeError:
-                    print("Ошибка: Введенные данные не являются корректным JSON!")
-            except KeyboardInterrupt:
-                print("\nВвод прерван.")
-        
-        elif choice == "19":
-            text_to_encrypt = get_multiline_input()
-            if text_to_encrypt:
-                public_key_path, user = get_user_to_encrypt(json_file)
-                if public_key_path:
-                    encrypted_data = encrypt_text_xchacha_rsa(public_key_path, text_to_encrypt)
-                    print(f"Зашифрованные данные (XChaCha20+RSA) для {user['username']}:")
-                    print(json.dumps(encrypted_data, indent=4))
-
-        elif choice == "20":
-            private_key_path, user = get_user_to_decrypt(json_file)
-            if private_key_path:
-                print("Введите зашифрованные данные (JSON) для XChaCha20+RSA:")
-                encrypted_json = get_multiline_input()
-                try:
-                    encrypted_data = json.loads(encrypted_json)
-                    decrypted_text = decrypt_text_xchacha_rsa(private_key_path, encrypted_data)
-                    print(f"Расшифрованный текст для {user['username']}:")
-                    print(decrypted_text)
-                except json.JSONDecodeError:
-                    print("Ошибка: Введенные данные не являются корректным JSON!")
-                except Exception as e:
-                    print(f"Ошибка расшифровки: {str(e)}")
-        elif choice =="21":
-            print("Поздравляем вы нашли секретное меню генерации ключей математическим методом")
-            username = input("Введите имя пользователя: ")
-            priv_filename, pub_filename = generate_key_pair_math(username)
-            save_keys_to_json(username, pub_filename, priv_filename, json_file)
+        menu_choice = input("Выберите действие: ").strip()
+        handler = handlers.get(menu_choice)
+        if handler:
+            handler()
+        else:
+            print("Неверный выбор.")
 
 
 
