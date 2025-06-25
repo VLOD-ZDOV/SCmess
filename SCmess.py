@@ -4,7 +4,7 @@ from cryptography.hazmat.primitives.asymmetric import padding, rsa
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.backends import default_backend
 #from pqcrypto.kem.kyber1024 import generate_keypair, encrypt, decrypt
-import os, base64, json, sys, random
+import os, base64, json, sys, random, binascii
 from datetime import datetime
 import time
 import pyperclip
@@ -53,7 +53,7 @@ def info():
     3. Для шифрования текста лучше использовать GCM метод, тк он имеет поддержку мульти строк и шифрует до 64гб текста
     4. Чтобы обнулить программу удалите файл keys.json и по желанию ключи
     5. GitHub создателя: https://github.com/VLOD-ZDOV
-    6. Версия - 6.0
+    6. Версия - 6.1
     """
     print(info)
     
@@ -246,7 +246,7 @@ def scan_for_keys(json_file, key_type='public'):
 # =============================================================================
 
 def prompt_add_found_keys(json_file="keys.json"):
-    found_keys = scan_for_public_keys()
+    found_keys = scan_for_public_keys(json_file)
     if not found_keys:
         print("Публичные ключи не найдены в стандартных и пользовательских папках.")
         return
@@ -414,7 +414,11 @@ def chat_mode(json_file):
         with open("config.json", 'w') as config_file:
             json.dump(config, config_file, indent=4)
 
-    print(f"Выбран режим: {mode}, пользователь: {user['username']}")
+    if user:
+        print(f"Выбран режим: {mode}, пользователь: {user['username']}")
+    else:
+        print(f"Выбран режим: {mode}, но пользователь не определен.")
+        return
     print("Введите сообщения для отправки или вставьте зашифрованные сообщения для расшифровки.")
     print("Для завершения ввода сообщения используйте Ctrl+D (Linux/Mac) или Ctrl+Z (Windows).")
     print("Для выхода из режима переписки нажмите Ctrl+C.")
@@ -559,6 +563,9 @@ def encrypt_text_gcm(public_key_path, text):
     with open(public_key_path, 'rb') as pub_file:
         public_key = serialization.load_pem_public_key(pub_file.read(), backend=default_backend())
 
+    if not isinstance(public_key, rsa.RSAPublicKey):
+        raise TypeError("Ключ не является публичным ключом RSA.")
+
     encrypted_aes_key = public_key.encrypt(
         aes_key,
         padding.OAEP(
@@ -603,6 +610,9 @@ def decrypt_text_gcm(private_key_path, encrypted_data):
             backend=default_backend()
         )
 
+    if not isinstance(private_key, rsa.RSAPrivateKey):
+        raise TypeError("Ключ не является приватным ключом RSA.")
+
     # Расшифровка AES ключа с использованием RSA
     aes_key = private_key.decrypt(
         encrypted_aes_key,
@@ -635,6 +645,9 @@ def encrypt_text(public_key_path, text):
     with open(public_key_path, 'rb') as pub_file:
         public_key = serialization.load_pem_public_key(pub_file.read(), backend=default_backend())
 
+    if not isinstance(public_key, rsa.RSAPublicKey):
+        raise TypeError("Ключ не является публичным ключом RSA.")
+
     # Шифрование текста с использованием RSA и OAEP
     encrypted = public_key.encrypt(
         text.encode(),
@@ -664,6 +677,9 @@ def decrypt_text(private_key_path, encrypted_message):
             password=None,
             backend=default_backend()
         )
+
+    if not isinstance(private_key, rsa.RSAPrivateKey):
+        raise TypeError("Ключ не является приватным ключом RSA.")
 
     # Расшифровка сообщения с использованием приватного ключа RSA
     decrypted_message = private_key.decrypt(
@@ -705,6 +721,9 @@ def encrypt_file_gcm(public_key_path, file_path):
     with open(public_key_path, 'rb') as pub_file:
         public_key = serialization.load_pem_public_key(pub_file.read(), backend=default_backend())
 
+    if not isinstance(public_key, rsa.RSAPublicKey):
+        raise TypeError("Ключ не является публичным ключом RSA.")
+
     encrypted_aes_key = public_key.encrypt(
         aes_key,
         padding.OAEP(
@@ -739,6 +758,9 @@ def decrypt_file_gcm(private_key_path, encrypted_file_path):
             password=None,
             backend=default_backend()
         )
+
+    if not isinstance(private_key, rsa.RSAPrivateKey):
+        raise TypeError("Ключ не является приватным ключом RSA.")
 
     # Расшифровка AES ключа с использованием RSA
     aes_key = private_key.decrypt(
@@ -793,6 +815,9 @@ def encrypt_file(public_key_path, file_path):
     with open(public_key_path, 'rb') as pub_file:
         public_key = serialization.load_pem_public_key(pub_file.read(), backend=default_backend())
 
+    if not isinstance(public_key, rsa.RSAPublicKey):
+        raise TypeError("Ключ не является публичным ключом RSA.")
+
     # Шифрование данных с использованием RSA
     encrypted_data = public_key.encrypt(
         plaintext,
@@ -827,6 +852,9 @@ def decrypt_file(private_key_path, encrypted_file_path):
             password=None,
             backend=default_backend()
         )
+
+    if not isinstance(private_key, rsa.RSAPrivateKey):
+        raise TypeError("Ключ не является приватным ключом RSA.")
 
     # Расшифровка данных с использованием приватного ключа RSA
     decrypted_data = private_key.decrypt(
@@ -888,7 +916,7 @@ def decrypt_xchacha(encrypted_data, password):
         decrypted_text = decryptor.update(ciphertext)
         
         return decrypted_text.decode()
-    except (KeyError, ValueError, TypeError, base64.binascii.Error):
+    except (KeyError, ValueError, TypeError, binascii.Error):
         return "Ошибка: Некорректные данные или неверный пароль!"
 
 
@@ -906,6 +934,9 @@ def encrypt_text_xchacha_rsa(public_key_path, text):
     # Чтение публичного ключа RSA
     with open(public_key_path, 'rb') as pub_file:
         public_key = serialization.load_pem_public_key(pub_file.read(), backend=default_backend())
+
+    if not isinstance(public_key, rsa.RSAPublicKey):
+        raise TypeError("Ключ не является публичным ключом RSA.")
 
     # Шифрование ключа XChaCha20 с RSA
     encrypted_xchacha_key = public_key.encrypt(
@@ -939,6 +970,9 @@ def decrypt_text_xchacha_rsa(private_key_path, encrypted_data):
             password=None,  # Если ключ защищен паролем, добавьте его сюда
             backend=default_backend()
         )
+
+    if not isinstance(private_key, rsa.RSAPrivateKey):
+        raise TypeError("Ключ не является приватным ключом RSA.")
 
     # Расшифровка ключа XChaCha20
     xchacha_key = private_key.decrypt(
@@ -1001,8 +1035,8 @@ def main():
     def handle_choice_4():
         public_key_path, _ = get_user_to_encrypt(json_file)
         if public_key_path:
-            file_path = input("Путь к файлу: ")
-            result = encrypt_file_gcm(public_key_path, file_path)
+            file = input("Путь к файлу: ")
+            result = encrypt_file_gcm(public_key_path, file)
             print(f"Сохранено: {result}")
 
     def handle_choice_5():
@@ -1022,8 +1056,12 @@ def main():
 
     def handle_choice_6():
         username = input("Имя пользователя: ")
-        path = input("Путь к ключу друга: ")
-        add_friend_key(username, path, json_file)
+        path = input("Путь к ключу: ")
+        key_type = input("Тип ключа (public/private): ").strip().lower()
+        if key_type in ['public', 'private']:
+            add_friend_key(username, path, key_type, json_file)
+        else:
+            print("Неверный тип ключа. Используйте 'public' или 'private'.")
 
     def handle_choice_7():
         with open(json_file) as f:
@@ -1031,8 +1069,37 @@ def main():
                 print(f"Имя: {entry['username']}, Публичный: {entry.get('public_key_path')}, Приватный: {entry.get('private_key_path')}")
 
     def handle_choice_8():
-        username = input("Введите имя пользователя для удаления: ")
-        delete_user_from_json(username, json_file)
+        with open(json_file, 'r') as f:
+            try:
+                data = json.load(f)
+            except json.JSONDecodeError:
+                data = []
+
+        if not data:
+            print("Нет пользователей для удаления.")
+            return
+
+        print("Выберите пользователя для удаления:")
+        for idx, entry in enumerate(data):
+            print(f"{idx + 1}. {entry['username']}")
+
+        try:
+            choice_str = input("Введите номер пользователя для удаления (или 0 для отмены): ")
+            choice = int(choice_str)
+
+            if choice == 0:
+                print("Удаление отменено.")
+                return
+
+            choice_index = choice - 1
+
+            if 0 <= choice_index < len(data):
+                username_to_delete = data[choice_index]['username']
+                delete_user_from_json(username_to_delete, json_file)
+            else:
+                print("Неверный выбор.")
+        except ValueError:
+            print("Некорректный ввод. Введите число.")
 
     def handle_choice_9():
         key_type = input("Тип ключей (public/private): ").strip().lower()
@@ -1121,14 +1188,14 @@ def main():
     def handle_choice_20():
         text = get_multiline_input()
         public_key_path, user = get_user_to_encrypt(json_file)
-        if public_key_path:
+        if public_key_path and user:
             result = encrypt_text_xchacha_rsa(public_key_path, text)
             print(f"Для {user['username']}:")
             print(json.dumps(result, indent=4))
 
     def handle_choice_21():
         private_key_path, user = get_user_to_decrypt(json_file)
-        if private_key_path:
+        if private_key_path and user:
             data = get_multiline_input()
             try:
                 decrypted = decrypt_text_xchacha_rsa(private_key_path, json.loads(data))
@@ -1315,19 +1382,7 @@ def der_to_pem(der_data, key_type):
         raise ValueError(error_msg)
     logging.debug("PEM формат:\n%s", pem[:100] + "...")
     return pem
-"""
-def get_public_key_directory():
-    pub_dir = os.path.join(os.getcwd(), "public_keys")
-    os.makedirs(pub_dir, exist_ok=True)
-    logging.debug("Директория публичных ключей: %s", pub_dir)
-    return pub_dir
 
-def get_private_key_directory():
-    priv_dir = os.path.join(os.getcwd(), "private_keys")
-    os.makedirs(priv_dir, exist_ok=True)
-    logging.debug("Директория приватных ключей: %s", priv_dir)
-    return priv_dir
-"""
 def generate_key_pair_math(username):
     logging.info("Генерация пары ключей для пользователя: %s", username)
     current_time = datetime.now().strftime("%Y%m%d%H%M%S")
