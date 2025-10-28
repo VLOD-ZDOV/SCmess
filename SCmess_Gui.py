@@ -5,8 +5,10 @@ import base64
 from datetime import datetime
 from PySide6.QtWidgets import (QApplication, QMainWindow, QTabWidget, QWidget, QVBoxLayout,
                                QPushButton, QTextEdit, QLineEdit, QLabel, QCheckBox, QFileDialog,
-                               QMessageBox, QInputDialog, QComboBox)
+                               QMessageBox, QInputDialog, QComboBox, QDialog, QListWidget,
+                               QListWidgetItem, QDialogButtonBox)
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QPalette, QColor
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
@@ -37,6 +39,9 @@ class SCMessGUI(QMainWindow):
         self.init_settings_tab()
         self.init_info_tab()
 
+        # Применение темы из конфигурации
+        self.apply_theme(config.get("theme", "system"))
+
     def load_config(self):
         """Загрузка или создание файла конфигурации."""
         global config
@@ -45,9 +50,9 @@ class SCMessGUI(QMainWindow):
                 try:
                     config = json.load(f)
                 except json.JSONDecodeError:
-                    config = {"legacy_mode": False, "pqc_mode": False}
+                    config = {"legacy_mode": False, "pqc_mode": False, "theme": "system"}
         else:
-            config = {"legacy_mode": False, "pqc_mode": False}
+            config = {"legacy_mode": False, "pqc_mode": False, "theme": "system"}
         self.save_config()
 
         if not os.path.exists(KEYS_FILE):
@@ -92,18 +97,21 @@ class SCMessGUI(QMainWindow):
         self.show_users_btn = QPushButton("Показать пользователей")
         self.delete_user_btn = QPushButton("Удалить пользователя")
         self.autoscan_keys_btn = QPushButton("Автоскан ключей")
+        self.toggle_user_interaction_btn = QPushButton("Вкл/выкл взаимодействие с ключом")
 
         self.create_keys_btn.clicked.connect(self.create_keys)
         self.add_key_btn.clicked.connect(self.add_key)
         self.show_users_btn.clicked.connect(self.show_users)
         self.delete_user_btn.clicked.connect(self.delete_user)
         self.autoscan_keys_btn.clicked.connect(self.autoscan_keys)
+        self.toggle_user_interaction_btn.clicked.connect(self.toggle_user_interaction)
 
         self.keys_layout.addWidget(self.create_keys_btn)
         self.keys_layout.addWidget(self.add_key_btn)
         self.keys_layout.addWidget(self.show_users_btn)
         self.keys_layout.addWidget(self.delete_user_btn)
         self.keys_layout.addWidget(self.autoscan_keys_btn)
+        self.keys_layout.addWidget(self.toggle_user_interaction_btn)
         self.keys_layout.addStretch()
 
     def init_text_tab(self):
@@ -151,6 +159,18 @@ class SCMessGUI(QMainWindow):
 
         self.settings_layout.addWidget(self.legacy_mode_cb)
         self.settings_layout.addWidget(self.pqc_mode_cb)
+
+        # Выбор темы интерфейса
+        self.theme_label = QLabel("Тема интерфейса:")
+        self.theme_combo = QComboBox()
+        self.theme_combo.addItems(["Системная", "Светлая", "Тёмная"])
+        current_theme = config.get("theme", "system")
+        index_map = {"system": 0, "light": 1, "dark": 2}
+        self.theme_combo.setCurrentIndex(index_map.get(current_theme, 0))
+        self.theme_combo.currentIndexChanged.connect(self.on_theme_changed)
+
+        self.settings_layout.addWidget(self.theme_label)
+        self.settings_layout.addWidget(self.theme_combo)
         self.settings_layout.addStretch()
 
     def init_info_tab(self):
@@ -190,7 +210,9 @@ class SCMessGUI(QMainWindow):
         for entry in data:
             pub = entry.get('public_key_path', 'Не указан')
             priv = entry.get('private_key_path', 'Не указан')
-            users_info += f"Имя: {entry['username']}, Публичный: {pub}, Приватный: {priv}\n"
+            enabled = entry.get('enabled', True)
+            status = 'включен' if enabled else 'выключен'
+            users_info += f"Имя: {entry['username']}, Статус: {status}, Публичный: {pub}, Приватный: {priv}\n"
         QMessageBox.information(self, "Пользователи", users_info)
 
     def delete_user(self):
@@ -213,16 +235,55 @@ class SCMessGUI(QMainWindow):
         if not found_keys:
             QMessageBox.information(self, "Результат", f"Новые {key_type} ключи не найдены.")
             return
-        keys_list = "\n".join([f"{i+1}. {key}" for i, key in enumerate(found_keys)])
-        selected, ok = QInputDialog.getText(self, "Найденные ключи", f"Найденные {key_type} ключи:\n{keys_list}\nВведите номера для добавления (через запятую):")
-        if ok and selected:
-            indices = [int(i) - 1 for i in selected.split(",")]
-            for idx in indices:
-                if 0 <= idx < len(found_keys):
-                    username, ok = QInputDialog.getText(self, "Имя пользователя", f"Введите имя для ключа {found_keys[idx]}:")
-                    if ok and username:
-                        self.add_friend_key(username, found_keys[idx], key_type)
+        selected_indices = self.show_checkbox_selection_dialog(
+            title=f"Найденные {key_type} ключи",
+            items=found_keys
+        )
+        if selected_indices is None:
+            return
+        added_any = False
+        for idx in selected_indices:
+            if 0 <= idx < len(found_keys):
+                username, ok = QInputDialog.getText(self, "Имя пользователя", f"Введите имя для ключа {found_keys[idx]}:")
+                if ok and username:
+                    self.add_friend_key(username, found_keys[idx], key_type)
+                    added_any = True
+        if added_any:
             QMessageBox.information(self, "Успех", "Выбранные ключи добавлены.")
+        else:
+            QMessageBox.information(self, "Результат", "Ключи не были добавлены.")
+
+    def show_checkbox_selection_dialog(self, title, items):
+        dialog = QDialog(self)
+        dialog.setWindowTitle(title)
+        layout = QVBoxLayout(dialog)
+
+        list_widget = QListWidget(dialog)
+        for text in items:
+            item = QListWidgetItem(text)
+            item.setCheckState(Qt.Unchecked)
+            list_widget.addItem(item)
+        layout.addWidget(list_widget)
+
+        button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, parent=dialog)
+        layout.addWidget(button_box)
+
+        def accept():
+            dialog.accept()
+
+        def reject():
+            dialog.reject()
+
+        button_box.accepted.connect(accept)
+        button_box.rejected.connect(reject)
+
+        if dialog.exec() == QDialog.Accepted:
+            selected = []
+            for i in range(list_widget.count()):
+                if list_widget.item(i).checkState() == Qt.Checked:
+                    selected.append(i)
+            return selected
+        return None
 
     ### Методы шифрования/расшифровки текста
     def encrypt_text_gcm(self):
@@ -411,7 +472,7 @@ class SCMessGUI(QMainWindow):
             return os.path.expanduser("~")
 
     def save_keys_to_json(self, username, pub_filename, priv_filename):
-        key_data = {"username": username, "public_key_path": pub_filename, "private_key_path": priv_filename}
+        key_data = {"username": username, "public_key_path": pub_filename, "private_key_path": priv_filename, "enabled": True}
         with open(KEYS_FILE, 'r+') as f:
             try:
                 data = json.load(f)
@@ -422,17 +483,19 @@ class SCMessGUI(QMainWindow):
             data.append(key_data)
             f.seek(0)
             json.dump(data, f, indent=4)
+            f.truncate()
 
     def add_friend_key(self, username, key_path, key_type):
         with open(KEYS_FILE, 'r+') as f:
             data = json.load(f)
             user_entry = next((entry for entry in data if entry['username'] == username), None)
             if not user_entry:
-                user_entry = {'username': username}
+                user_entry = {'username': username, 'enabled': True}
                 data.append(user_entry)
             user_entry[f"{key_type}_key_path"] = key_path
             f.seek(0)
             json.dump(data, f, indent=4)
+            f.truncate()
 
     def delete_user_from_json(self, username):
         with open(KEYS_FILE, 'r+') as f:
@@ -466,9 +529,9 @@ class SCMessGUI(QMainWindow):
     def get_user_to_encrypt(self):
         with open(KEYS_FILE, 'r') as f:
             data = json.load(f)
-            valid_users = [entry for entry in data if entry.get("public_key_path")]
+            valid_users = [entry for entry in data if entry.get("public_key_path") and entry.get('enabled', True)]
         if not valid_users:
-            QMessageBox.warning(self, "Ошибка", "Нет пользователей с публичными ключами.")
+            QMessageBox.warning(self, "Ошибка", "Нет доступных пользователей с включённым публичным ключом.")
             return None
         usernames = [entry['username'] for entry in valid_users]
         username, ok = QInputDialog.getItem(self, "Выбор пользователя", "Выберите пользователя для шифрования:", usernames, 0, False)
@@ -479,15 +542,39 @@ class SCMessGUI(QMainWindow):
     def get_user_to_decrypt(self):
         with open(KEYS_FILE, 'r') as f:
             data = json.load(f)
-            valid_users = [entry for entry in data if entry.get("private_key_path")]
+            valid_users = [entry for entry in data if entry.get("private_key_path") and entry.get('enabled', True)]
         if not valid_users:
-            QMessageBox.warning(self, "Ошибка", "Нет пользователей с приватными ключами.")
+            QMessageBox.warning(self, "Ошибка", "Нет доступных пользователей с включённым приватным ключом.")
             return None
         usernames = [entry['username'] for entry in valid_users]
         username, ok = QInputDialog.getItem(self, "Выбор пользователя", "Выберите пользователя для расшифровки:", usernames, 0, False)
         if ok:
             return next(entry['private_key_path'] for entry in valid_users if entry['username'] == username)
         return None
+
+    def toggle_user_interaction(self):
+        with open(KEYS_FILE, 'r+') as f:
+            try:
+                data = json.load(f)
+            except json.JSONDecodeError:
+                data = []
+            if not data:
+                QMessageBox.information(self, "Пользователи", "Список пользователей пуст.")
+                return
+            usernames = [entry['username'] for entry in data]
+            username, ok = QInputDialog.getItem(self, "Переключить взаимодействие", "Выберите пользователя:", usernames, 0, False)
+            if not ok or not username:
+                return
+            for entry in data:
+                if entry['username'] == username:
+                    current = entry.get('enabled', True)
+                    entry['enabled'] = not current
+                    status = 'включено' if entry['enabled'] else 'выключено'
+                    break
+            f.seek(0)
+            json.dump(data, f, indent=4)
+            f.truncate()
+        QMessageBox.information(self, "Статус обновлён", f"Взаимодействие для '{username}' {status}.")
 
     def encrypt_text_gcm_backend(self, public_key_path, text):
         aes_key = os.urandom(32)
@@ -739,6 +826,98 @@ class SCMessGUI(QMainWindow):
         decryptor = cipher.decryptor()
         decrypted_text = decryptor.update(ciphertext) + decryptor.finalize()
         return decrypted_text.decode('utf-8')
+
+    def on_theme_changed(self, index):
+        theme_map = {0: "system", 1: "light", 2: "dark"}
+        theme_value = theme_map.get(index, "system")
+        config["theme"] = theme_value
+        self.save_config()
+        self.apply_theme(theme_value)
+
+    def apply_theme(self, theme):
+        app = QApplication.instance()
+        if app is None:
+            return
+
+        if theme == "system":
+            system_theme = self.detect_system_theme()
+            try:
+                QApplication.setStyle("Fusion")
+            except Exception:
+                pass
+            if system_theme == "dark":
+                self.set_fusion_dark_palette(app)
+            else:
+                app.setPalette(app.style().standardPalette())
+            return
+
+        if theme == "dark":
+            self.set_fusion_dark_palette(app)
+            return
+
+        if theme == "light":
+            try:
+                QApplication.setStyle("Fusion")
+            except Exception:
+                pass
+            app.setPalette(app.style().standardPalette())
+
+    def set_fusion_dark_palette(self, app):
+        try:
+            QApplication.setStyle("Fusion")
+        except Exception:
+            pass
+        dark_palette = QPalette()
+        dark_color = QColor(53, 53, 53)
+        base_color = QColor(35, 35, 35)
+        text_color = QColor(220, 220, 220)
+        disabled_text = QColor(127, 127, 127)
+
+        dark_palette.setColor(QPalette.Window, dark_color)
+        dark_palette.setColor(QPalette.WindowText, text_color)
+        dark_palette.setColor(QPalette.Base, base_color)
+        dark_palette.setColor(QPalette.AlternateBase, dark_color)
+        dark_palette.setColor(QPalette.ToolTipBase, text_color)
+        dark_palette.setColor(QPalette.ToolTipText, text_color)
+        dark_palette.setColor(QPalette.Text, text_color)
+        dark_palette.setColor(QPalette.Disabled, QPalette.Text, disabled_text)
+        dark_palette.setColor(QPalette.Button, dark_color)
+        dark_palette.setColor(QPalette.ButtonText, text_color)
+        dark_palette.setColor(QPalette.Disabled, QPalette.ButtonText, disabled_text)
+        dark_palette.setColor(QPalette.BrightText, QColor(255, 0, 0))
+        dark_palette.setColor(QPalette.Link, QColor(42, 130, 218))
+        dark_palette.setColor(QPalette.Highlight, QColor(42, 130, 218))
+        dark_palette.setColor(QPalette.HighlightedText, QColor(0, 0, 0))
+
+        app.setPalette(dark_palette)
+
+    def detect_system_theme(self):
+        # Windows: AppsUseLightTheme (1=light, 0=dark)
+        if os.name == 'nt':
+            try:
+                import winreg
+                with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize") as key:
+                    value, _ = winreg.QueryValueEx(key, "AppsUseLightTheme")
+                    return "light" if int(value) == 1 else "dark"
+            except Exception:
+                return "light"
+
+        # KDE (Linux): читаем kdeglobals ColorScheme
+        if os.name == 'posix' and (os.environ.get('KDE_FULL_SESSION') == 'true' or (os.environ.get('XDG_CURRENT_DESKTOP') or '').lower().find('kde') != -1):
+            try:
+                kdeglobals = os.path.expanduser("~/.config/kdeglobals")
+                if os.path.exists(kdeglobals):
+                    with open(kdeglobals, 'r', encoding='utf-8', errors='ignore') as f:
+                        for line in f:
+                            if line.strip().startswith('ColorScheme'):
+                                if 'Dark' in line or 'BreezeDark' in line:
+                                    return "dark"
+                                break
+                return "light"
+            except Exception:
+                return "light"
+
+        return "light"
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
