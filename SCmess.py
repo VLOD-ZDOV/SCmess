@@ -53,7 +53,7 @@ def info():
     3. Для шифрования текста лучше использовать GCM метод, тк он имеет поддержку мульти строк и шифрует до 64гб текста
     4. Чтобы обнулить программу удалите файл keys.json и по желанию ключи
     5. GitHub создателя: https://github.com/VLOD-ZDOV
-    6. Версия - 6.1
+    6. Версия - 7.0
     """
     print(info)
     
@@ -332,6 +332,7 @@ def toggle_pqc_mode():
 # Основное меню программы
 # =============================================================================
 
+# --- Функция печати меню ---
 def print_menu():
     legacy_menu = ""
     if config.get('legacy_mode', False):
@@ -351,6 +352,11 @@ def print_menu():
     21. Расшифровать текст (XChaCha20+RSA) своим ключом
     """
 
+    # --- НОВОЕ МЕНЮ ДЛЯ ГРУППОВОГО ЧАТА ---
+    group_chat_menu = """
+    23. Групповой чат (AES-GCM + RSA)
+    """
+
     menu = """
     --- Главное меню ---
     1. Создать пару ключей и сохранить в JSON
@@ -367,13 +373,15 @@ def print_menu():
     {legacy_menu}
     16. {toggle_pqc}
     {pqc_menu}
+    {group_chat_menu} # <-- Вставляем новое меню сюда
     17. Начать переписку
     0. Выйти из программы
     """.format(
         toggle_legacy="Выключить Legacy-режим" if config.get('legacy_mode', False) else "Включить Legacy-режим",
         legacy_menu=legacy_menu,
         toggle_pqc="Выключить PQC-режим" if config.get('pqc_mode', False) else "Включить PQC-режим",
-        pqc_menu=pqc_menu
+        pqc_menu=pqc_menu,
+        group_chat_menu=group_chat_menu # <-- Передаём новое меню в формат
     )
     print(menu)
 
@@ -991,6 +999,246 @@ def decrypt_text_xchacha_rsa(private_key_path, encrypted_data):
 
     return decrypted_text.decode('utf-8')
 
+
+
+def select_users_for_encryption(json_file, exclude_username=None):
+    """Позволяет пользователю выбрать нескольких пользователей для шифрования."""
+    with open(json_file, 'r') as file:
+        data = json.load(file)
+
+    # Отфильтровываем пользователей, у которых есть публичный ключ и, опционально, исключаем текущего пользователя
+    valid_users = [entry for entry in data if entry.get("public_key_path") and (not exclude_username or entry.get("username") != exclude_username)]
+
+    if not valid_users:
+        print("Нет доступных пользователей с публичными ключами.")
+        return []
+
+    print("\n--- Доступные пользователи для шифрования ---")
+    for idx, entry in enumerate(valid_users):
+        status = "[enabled]" if entry.get('enabled', True) else "[disabled]"
+        print(f"{idx + 1}. {entry['username']} {status}")
+
+    print("\nВведите номера пользователей через запятую (например, 1,3,4) или диапазон (1-3) для выбора. Введите 'all' для выбора всех.")
+
+    choice_input = input("Ваш выбор: ").strip().lower()
+
+    selected_users = []
+    if choice_input == 'all':
+        selected_users = valid_users
+    else:
+        selected_indices = set()
+        try:
+            parts = choice_input.replace(' ', '').split(',')
+            for part in parts:
+                if '-' in part:
+                    start, end = map(int, part.split('-'))
+                    selected_indices.update(range(start - 1, end))
+                else:
+                    selected_indices.add(int(part) - 1)
+
+            for i in sorted(selected_indices):
+                if 0 <= i < len(valid_users):
+                    selected_users.append(valid_users[i])
+                else:
+                    print(f"Предупреждение: Неверный номер пользователя {i + 1}, пропущен.")
+        except ValueError:
+            print("Ошибка: Неверный формат ввода. Используйте числа, запятые и/или дефисы.")
+            return []
+
+    if not selected_users:
+        print("Ни один пользователь не был выбран.")
+        return []
+
+    print(f"\nВыбрано {len(selected_users)} пользователей для шифрования.")
+    for user in selected_users:
+        print(f"- {user['username confirm = input("\nПодтвердите выбор (y/n): ").strip().lower()
+    if confirm not in ['y', 'yes', 'д', 'да']:
+        print("Операция отменена.")
+        return []
+
+    return selected_users
+
+def encrypt_group_message(json_file, text):
+    """Шифрует сообщение для выбранных пользователей."""
+    # Предполагаем, что мы знаем имя отправителя, например, берется из конфига или вводится
+    # Для упрощения, просто запросим его здесь
+    sender_name = input("Введите ваше имя (отправителя): ").strip()
+    if not sender_name:
+        print("Имя отправителя не может быть пустым.")
+        return
+
+    selected_users = select_users_for_encryption(json_file, exclude_username=sender_name)
+    if not selected_users:
+        return
+
+    # 1. Генерируем единый ключ AES для этого сообщения
+    aes_key = os.urandom(32)
+    iv = os.urandom(12)
+    encryptor = Cipher(algorithms.AES(aes_key), modes.GCM(iv), backend=default_backend()).encryptor()
+    ciphertext = encryptor.update(text.encode('utf-8')) + encryptor.finalize()
+
+    # 2. Шифруем AES ключ публичным RSA-ключом каждого получателя
+    encrypted_keys = {}
+    failed_users = []
+    for user in selected_users:
+        try:
+            with open(user['public_key_path'], 'rb') as f:
+                public_key = serialization.load_pem_public_key(f.read(), backend=default_backend())
+
+            enc_aes_key = public_key.encrypt(
+                aes_key,
+                padding.OAEP(
+                    mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                    algorithm=hashes.SHA256(),
+                    label=None
+                )
+            )
+            encrypted_keys[user['username']] = base64.b64encode(enc_aes_key).decode('utf-8')
+        except Exception as e:
+            print(f"Ошибка шифрования для {user['username']}: {str(e)}")
+            failed_users.append(user['username'])
+
+    if not encrypted_keys:
+        print("Не удалось зашифровать ключ ни для одного получателя.")
+        return
+
+    if failed_users:
+        print(f"Предупреждение: Не удалось зашифровать для следующих пользователей: {', '.join(failed_users)}")
+
+    # 3. Формируем итоговый JSON пакет
+    payload = {
+        "type": "group_message_gcm",
+        "sender": sender_name, # Добавим имя отправителя в пакет
+        "timestamp": datetime.now().isoformat(), # Добавим временную метку
+        "iv": base64.b64encode(iv).decode('utf-8'),
+        "tag": base64.b64encode(encryptor.tag).decode('utf-8'),
+        "ciphertext": base64.b64encode(ciphertext).decode('utf-8'),
+        "keys": encrypted_keys
+    }
+
+    encrypted_json = json.dumps(payload, indent=4, ensure_ascii=False)
+    print("\n--- Зашифрованное групповое сообщение ---")
+    print(encrypted_json)
+    print("--- Конец сообщения ---\n")
+
+    copy_choice = input("Скопировать зашифрованный JSON в буфер обмена? (д/н): ").strip().lower()
+    if copy_choice in ["д", "y", "yes", "да            pyperclip.copy(encrypted_json)
+            print("Зашифрованный JSON скопирован в буфер обмена.")
+        except pyperclip.PyperclipException:
+             print("Не удалось скопировать в буфер обмена.")
+
+
+def decrypt_group_message(json_str):
+    """Расшифровывает групповое сообщение, если у нас есть подходящий приватный ключ."""
+    try:
+        payload = json.loads(encrypted_json_str)
+        if payload.get("type") != "group_message_gcm":
+            raise ValueError("Неверный формат сообщения (не group_message_gcm)")
+    except (json.JSONDecodeError, ValueError):
+        print("Некорректный JSON пакет группового сообщения или неверный тип.")
+        return
+
+    # Загружаем наши доступные приватные ключи
+    try:
+        with open(json_file, 'r') as f:
+            data = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        print(f"Не удается прочитать файл {json_file}.")
+        return
+
+    my_private_keys = {
+        entry['username']: entry['private_key_path']
+        for entry in data
+        if entry.get("private_key_path") and entry.get('enabled', True)
+    }
+
+    if not my_private_keys:
+        print("У вас нет настроенных приватных ключей для расшифровки.")
+        return
+
+    # Ищем, зашифровано ли сообщение для одного из наших профилей
+    target_username = None
+    encrypted_aes_key_b64 = None
+
+    for username, enc_key in payload.get("keys", {}).items():
+        if username in my_private_keys:
+            target_username = username
+            encrypted_aes_key_b64 = enc_key
+            break
+
+    if not target_username:
+        print("Это сообщение не предназначалось ни одному из ваших пользователей, или имена не совпадают.")
+        return
+
+    # Расшифровываем
+    try:
+        priv_key_path = my_private_keys[target_username]
+        encrypted_aes_key = base64.b64decode(encrypted_aes_key_b64)
+        iv = base64.b64decode(payload['iv'])
+        tag = base64.b64decode(payload['tag'])
+        ciphertext = base64.b64decode(payload['ciphertext'])
+
+        with open(priv_key_path, 'rb') as f:
+            private_key = serialization.load_pem_private_key(f.read(), password=None, backend=default_backend())
+
+        # Расшифровка AES ключа
+        aes_key = private_key.decrypt(
+            encrypted_aes_key,
+            padding.OAEP(
+                mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                algorithm=hashes.SHA256(),
+                label=None
+            )
+        )
+
+        # Расшифровка текста
+        decryptor = Cipher(algorithms.AES(aes_key), modes.GCM(iv, tag), backend=default_backend()).decryptor()
+        decrypted_bytes = decryptor.update(ciphertext) + decryptor.finalize()
+
+        sender = payload.get("sender", "Неизвестен")
+        timestamp = payload.get("timestamp", "Время не указано")
+        print(f"\n--- Расшифрованное сообщение ---")
+        print(f"От: {sender}")
+        print(f"Время: {timestamp}")
+        print(f"Для: {target_username}")
+        print("-" * 30)
+        print(decrypted_bytes.decode('utf-8'))
+        print("-" * 30)
+        print("--- Конец сообщения ---\n")
+
+
+    except Exception as e:
+        print(f"Ошибка расшифровки: {str(e)}")
+        import traceback
+        traceback.print_exc() # Для отладки
+
+
+def handle_choice_group_chat(json_file="keys.json"):
+    """Обрабатывает выбор меню для группового чат-режима."""
+    print("\n--- Режим группового чата ---")
+    print("1. Зашифровать сообщение для группы")
+    print("2. Расшифровать полученное групповое сообщение")
+
+    choice = input("Выберите действие (1 или 2): ").strip()
+
+    if choice == "1":
+        text = get_multiline_input()
+        if text.strip():
+            encrypt_group_message(json_file, text)
+        else:
+            print("Текст сообщения пуст.")
+    elif choice == "2":
+        print("Вставьте зашифрованное JSON-сообщение (нажмите Ctrl+D/Ctrl+Z после вставки):")
+        try:
+            encrypted_json_str = ''.join(sys.stdin.readlines())
+            decrypt_group_message(json_file, encrypted_json_str)
+        except KeyboardInterrupt:
+            print("\nОтменено пользователем.")
+    else:
+        print("Неверный выбор.")
+
+
+
 # =============================================================================
 # Основная функция
 # =============================================================================
@@ -1217,7 +1465,7 @@ def main():
         "13": handle_choice_13, "14": handle_choice_14, "15": handle_choice_15,
         "16": handle_choice_16, "17": handle_choice_17, "18": handle_choice_18,
         "19": handle_choice_19, "20": handle_choice_20, "21": handle_choice_21,
-        "22": handle_choice_22, "0": lambda: exit("Выход.")
+        "22": handle_choice_22,"23": handle_choice_group_chat, "0": lambda: exit("Выход.")
     }
 
     while True:
