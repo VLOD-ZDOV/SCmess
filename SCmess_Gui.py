@@ -1024,68 +1024,138 @@ class SCMessGUI(QMainWindow):
 
     # ========================== ТЕМЫ ИНТЕРФЕЙСА ==========================
     def on_theme_changed(self, index):
-        theme_map = {0: "system", 1: "light", 2: "dark"}
-        theme_value = theme_map.get(index, "system")
-        config["theme"] = theme_value
-        self.save_config()
-        self.apply_theme(theme_value)
+    # Добавлен индекс 3 для AMOLED
+    theme_map = {0: "system", 1: "light", 2: "dark", 3: "amoled"} # Обновлен словарь
+    theme_value = theme_map.get(index, "system")
+    config["theme"] = theme_value
+    self.save_config()
+    self.apply_theme(theme_value)
 
     def apply_theme(self, theme):
-        app = QApplication.instance()
-        if app is None:
-            return
+    app = QApplication.instance()
+    if app is None:
+        return
 
-        if theme == "system":
-            system_theme = self.detect_system_theme()
-            try:
-                QApplication.setStyle("Fusion")
-            except Exception:
-                pass
-            if system_theme == "dark":
-                self.set_fusion_dark_palette(app)
-            else:
-                app.setPalette(app.style().standardPalette())
-            return
+    # Убедимся, что используем стиль Fusion для более предсказуемого поведения палитры
+    try:
+        QApplication.setStyle("Fusion")
+    except Exception:
+        pass # Если Fusion недоступен, продолжаем с текущим стилем
 
-        if theme == "dark":
+    if theme == "system":
+        system_theme = self.detect_system_theme()
+        if system_theme == "dark":
             self.set_fusion_dark_palette(app)
-            return
+        else:
+            self.set_fusion_light_palette(app) # Используем специальную светлую палитру
+        return
 
-        if theme == "light":
-            try:
-                QApplication.setStyle("Fusion")
-            except Exception:
-                pass
-            app.setPalette(app.style().standardPalette())
+    if theme == "dark":
+        self.set_fusion_dark_palette(app)
+        return
+
+    if theme == "light":
+        self.set_fusion_light_palette(app) # Используем специальную светлую палитру
+        return
+
+    if theme == "amoled": # Новый блок для AMOLED
+        self.set_fusion_amoled_palette(app)
+        return
+
+    # На всякий случай, если тема неизвестна, возвращаем к системной
+    system_theme = self.detect_system_theme()
+    if system_theme == "dark":
+        self.set_fusion_dark_palette(app)
+    else:
+        self.set_fusion_light_palette(app)
 
     def set_fusion_dark_palette(self, app):
-        try:
-            QApplication.setStyle("Fusion")
-        except Exception:
-            pass
-        dark_palette = QPalette()
-        dark_color = QColor(53, 53, 53)
-        base_color = QColor(35, 35, 35)
-        text_color = QColor(220, 220, 220)
-        disabled_text = QColor(127, 127, 127)
+    # Убрали повторный вызов QApplication.setStyle("Fusion")
+    # Он теперь вызывается в apply_theme перед этой функцией
+    dark_palette = QPalette()
+    dark_color = QColor(53, 53, 53)
+    base_color = QColor(35, 35, 35) # Этот цвет для полей ввода
+    text_color = QColor(220, 220, 220)
+    disabled_text = QColor(127, 127, 127)
 
-        dark_palette.setColor(QPalette.Window, dark_color)
-        dark_palette.setColor(QPalette.WindowText, text_color)
-        dark_palette.setColor(QPalette.Base, base_color)
-        dark_palette.setColor(QPalette.AlternateBase, dark_color)
-        dark_palette.setColor(QPalette.ToolTipBase, text_color)
-        dark_palette.setColor(QPalette.ToolTipText, text_color)
-        dark_palette.setColor(QPalette.Text, text_color)
-        dark_palette.setColor(QPalette.Disabled, QPalette.Text, disabled_text)
-        dark_palette.setColor(QPalette.Button, dark_color)
-        dark_palette.setColor(QPalette.ButtonText, text_color)
-        dark_palette.setColor(QPalette.Disabled, QPalette.ButtonText, disabled_text)
-        dark_palette.setColor(QPalette.BrightText, QColor(255, 0, 0))
-        dark_palette.setColor(QPalette.Link, QColor(42, 130, 218))
-        dark_palette.setColor(QPalette.Highlight, QColor(42, 130, 218))
-        dark_palette.setColor(QPalette.HighlightedText, QColor(0, 0, 0))
+    dark_palette.setColor(QPalette.Window, dark_color)          # Фон основного окна
+    dark_palette.setColor(QPalette.WindowText, text_color)      # Текст на фоне
+    dark_palette.setColor(QPalette.Base, base_color)            # Фон полей ввода (QTextEdit, QLineEdit)
+    dark_palette.setColor(QPalette.AlternateBase, dark_color)   # Альтернативный фон (например, в списках)
+    dark_palette.setColor(QPalette.ToolTipBase, dark_color)     # Фон подсказок
+    dark_palette.setColor(QPalette.ToolTipText, text_color)     # Текст подсказок
+    dark_palette.setColor(QPalette.Text, text_color)            # Текст в полях ввода
+    dark_palette.setColor(QPalette.Disabled, QPalette.Text, disabled_text) # Отключенный текст в полях ввода
+    dark_palette.setColor(QPalette.Button, dark_color)          # Фон кнопок
+    dark_palette.setColor(QPalette.ButtonText, text_color)      # Текст на кнопках
+    dark_palette.setColor(QPalette.Disabled, QPalette.ButtonText, disabled_text) # Отключенный текст на кнопках
+    dark_palette.setColor(QPalette.BrightText, QColor(255, 0, 0)) # Яркий текст (например, для ошибок)
+    dark_palette.setColor(QPalette.Link, QColor(42, 130, 218))  # Цвет ссылок
+    dark_palette.setColor(QPalette.Highlight, QColor(42, 130, 218)) # Цвет фокуса/выделения
+    dark_palette.setColor(QPalette.HighlightedText, QColor(0, 0, 0ст на фокусе/выделении
 
-        app.setPalette(dark_palette)
+    app.setPalette(dark_palette)
+
+    def set_fusion_light_palette(self, app = QPalette()
+    # Яркие, чистые цвета для светлой темы
+    window_color = QColor(255, 255, 255) # Белый фон
+    window_text_color = QColor(0, 0, 0)  # Черный текст на фоне
+    base_color = QColor(255, 255, 255)   # Белый фон полей ввода
+    text_color = QColor(0, 0, 0)         # Черный текст в полях ввода
+    button_color = QColor(240, 240, 240) # Светло-серый фон кнопок
+    button_text_color = QColor(0, 0, 0)  # Черный текст на кнопках
+    tooltip_base_color = QColor(255, 255, 220) # Желтоватый фон подсказок
+    tooltip_text_color = QColor(0, 0, 0)       # Черный текст подсказок
+    disabled_text_color = QColor(128, 1128) # Серый отключенный текст
+
+(QPalette.Window, window_color)
+    light_palette.setColor(QPalette.WindowText, window_text_color)
+    light_palette.setColor(QPalette.Base, base_color)
+    light_palette.setColor(QPalette.AlternateBase, QColor(247, 247, 247)) # Сlightly off-white for alternate rows
+    light_palette.setColor(QPalette.ToolTipBase, tooltip_base_color)
+    light_palette.setColor(QPalette.ToolTipText, tooltip_text_color)
+    light_palette.setColor(QPalette.Text, text_color)
+    light_palette.setColor(QPalette.Disabled, QPalette.Text, disabled_text_color)
+    light_palette.setColor(QPalette.Button, button_color)
+    light_palette.setColor(QPalette.ButtonText, button_text_color)
+    light_palette.setColor(QPalette.Disabled, QPalette.ButtonText, disabled_text_color)
+    light_palette.setColor(QPalette.BrightText, QColor(255, 0, 0)) # Яркий текст (ок)
+    light_palette.setColor(QPalette.Link, QColor(0, 0, 255))       # Цвет ссылок (синий)
+    light_palette.setColor(QPalette.Highlight, QColor(51, 153, 255)) # Цвет фокуса/выделения (голубой)
+    light_palette.setColor(QPalette.HighlightedText, QColor(255, 255, 255)) # Белый текст на фокусе/выделении
+
+    app.setPalette(light_palette)
+
+    def set_fusion_amoled_palette(self, app):
+    amoled_palette = QPalette()
+    # Цвета для AMOLED: максимально черный фон
+    window_color = QColor(0, 0, 0)       # Чёрный фон
+    window_text_color = QColor(220, 220, 220) # Светло-серый текст на фоне
+    base_color = QColor(0, 0, 0)         # Чёрный фон полей ввода
+    text_color = QColor(220, 220, 220)   # Светло-серый текст в полях ввода
+    button_color = QColor(30, 30, 30)    # Очень тёмно-серый фон кнопок
+    button_text_color = QColor(220, 220, 220) # Светло-серый текст на кнопках
+    tooltip_base_color = QColor(0, 0, 0) # Чёрный фон подсказок
+    tooltip_text_color = QColor(220, 220, 220) # Светло-серый текст подсказок
+    disabled_text_color = QColor(80, 80, 80) # Тусклый серый отключенный текст
+
+    amoled_palette.setColor(QPalette.Window, window_color)
+    amoled_palette.setColor(QPalette.WindowText, window_text_color)
+    amoled_palette.setColor(QPalette.Base, base_color)
+    amoled_palette.setColor(QPalette.AlternateBase, QColor(10, 10, 10)) # Очень тёмный серый для альтернативных рядов
+    amoled_palette.setColor(QPalette.ToolTipBase, tooltip_base_color)
+    amoled_palette.setColor(QPalette.ToolTipText, tooltip_text_color)
+    amoled_palette.setColor(QPalette.Text, text_color)
+    amoled_palette.setColor(QPalette.Disabled, QPalette.Text, disabled_text_color)
+    amoled_palette.setColor(QPalette.Button, button_color)
+    amoled_palette.setColor(QPalette.ButtonText, button_text_color)
+    amoled_palette.setColor(QPalette.Disabled, QPalette.ButtonText, disabled_text_color)
+    amoled_palette.setColor(QPalette.BrightText, QColor(255, 50, 50)) # Ярко-красный текст (например, для ошибок)
+    amoled_palette.setColor(QPalette.Link, QColor(100, 200, 255))     # Светло-голубой цвет ссылок
+    amoled_palette.setColor(QPalette.Highlight, QColor(42, 130, 218)) # Цвет фокуса/выделения (голубой)
+    amoled_palette.setColor(QPalette.HighlightedText, QColor(0, 0, 0)) # Чёрный текст на фокусе/выделении
+
+    app.setPalette(amoled_palette)
 
     def detect_system_theme(self):
         if os.name == 'nt':
