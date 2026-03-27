@@ -1025,11 +1025,11 @@ class SCMessGUI(QMainWindow):
     # ========================== ТЕМЫ ИНТЕРФЕЙСА ==========================
     def on_theme_changed(self, index):
     # Добавлен индекс 3 для AMOLED
-        theme_map = {0: "system", 1: "light", 2: "dark", 3: "amoled"} # Обновлен словарь
-        theme_value = theme_map.get(index, "system")
-        config["theme"] = theme_value
-        self.save_config()
-        self.apply_theme(theme_value)
+    	theme_map = {0: "system", 1: "light", 2: "dark", 3: "amoled"} # Обновлен словарь
+      theme_value = theme_map.get(index, "system")
+      config["theme"] = theme_value
+      self.save_config()
+			self.apply_theme(theme_value)
 
     def apply_theme(self, theme):
             app = QApplication.instance()
