@@ -373,7 +373,7 @@ def print_menu():
     {legacy_menu}
     16. {toggle_pqc}
     {pqc_menu}
-    {group_chat_menu} # <-- Вставляем новое меню сюда
+    {group_chat_menu}
     17. Начать переписку
     0. Выйти из программы
     """.format(
@@ -1051,7 +1051,9 @@ def select_users_for_encryption(json_file, exclude_username=None):
 
     print(f"\nВыбрано {len(selected_users)} пользователей для шифрования.")
     for user in selected_users:
-        print(f"- {user['username confirm = input("\nПодтвердите выбор (y/n): ").strip().lower()
+        print(f"- {user['username']}")
+
+    confirm = input("\nПодтвердите выбор (y/n): ").strip().lower()
     if confirm not in ['y', 'yes', 'д', 'да']:
         print("Операция отменена.")
         return []
@@ -1074,7 +1076,8 @@ def encrypt_group_message(json_file, text):
     # 1. Генерируем единый ключ AES для этого сообщения
     aes_key = os.urandom(32)
     iv = os.urandom(12)
-    encryptor = Cipher(algorithms.AES(aes_key), modes.GCM(iv), backend=default_backend()).encryptor()
+    # ИСПРАВЛЕНО: добавлено '=default_backend()'
+    encryptor = Cipher(algorithms.AES(aes_key), modes.GCM(iv), backend=default_backend())
     ciphertext = encryptor.update(text.encode('utf-8')) + encryptor.finalize()
 
     # 2. Шифруем AES ключ публичным RSA-ключом каждого получателя
@@ -1122,14 +1125,19 @@ def encrypt_group_message(json_file, text):
     print("--- Конец сообщения ---\n")
 
     copy_choice = input("Скопировать зашифрованный JSON в буфер обмена? (д/н): ").strip().lower()
-    if copy_choice in ["д", "y", "yes", "да            pyperclip.copy(encrypted_json)
+    if copy_choice in ["д", "y", "yes", "да"]:
+        try:
+            import pyperclip
+            pyperclip.copy(encrypted_json)
             print("Зашифрованный JSON скопирован в буфер обмена.")
+        except ImportError:
+            print("pyperclip не установлен. Установите его командой 'pip install pyperclip', чтобы использовать копирование.")
         except pyperclip.PyperclipException:
              print("Не удалось скопировать в буфер обмена.")
 
 
-def decrypt_group_message(json_str):
-    """Расшифровывает групповое сообщение, если у нас есть подходящий приватный ключ."""
+def decrypt_group_message(json_file, encrypted_json_str):
+    """Расшифровение, если у нас есть подходящий приватный ключ."""
     try:
         payload = json.loads(encrypted_json_str)
         if payload.get("type") != "group_message_gcm":
@@ -1222,16 +1230,22 @@ def handle_choice_group_chat(json_file="keys.json"):
     choice = input("Выберите действие (1 или 2): ").strip()
 
     if choice == "1":
+        print("Введите сообщение (для завершения нажмите Ctrl+D на пустой строке):")
         text = get_multiline_input()
         if text.strip():
             encrypt_group_message(json_file, text)
         else:
             print("Текст сообщения пуст.")
     elif choice == "2":
-        print("Вставьте зашифрованное JSON-сообщение (нажмите Ctrl+D/Ctrl+Z после вставки):")
+        print("Вставьте зашифрованное JSON-сообщение (нажмите Enter после вставки):")
         try:
-            encrypted_json_str = ''.join(sys.stdin.readlines())
-            decrypt_group_message(json_file, encrypted_json_str)
+            # Для простоты, считаем одну строку. Пользователь должен вставить всё сообщение целиком.
+            # Альтернатива - снова использовать get_multiline_input, но это менее удобно для вставки.
+            encrypted_json_str = input()
+            if encrypted_json_str.strip():
+                 decrypt_group_message(json_file, encrypted_json_str)
+            else:
+                print("Вставленное сообщение пусто.")
         except KeyboardInterrupt:
             print("\nОтменено пользователем.")
     else:
