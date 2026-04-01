@@ -1,4 +1,5 @@
 import os
+import io
 import json
 import base64
 import threading
@@ -6,6 +7,8 @@ from datetime import datetime
 
 from kivy.config import Config
 Config.set('graphics', 'maxfps', '120')
+# Отключаем системное меню выделения текста (Select all / Paste)
+Config.set('kivy', 'allow_screensaver', '0')
 
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
@@ -16,8 +19,8 @@ from kivy.app import App
 from kivy.lang import Builder
 from kivy.core.window import Window
 from kivy.core.clipboard import Clipboard
-from kivy.uix.screenmanager import ScreenManager, Screen
-from kivy.uix.popup import Popup
+from kivy.uix.screenmanager import ScreenManager, Screen, NoTransition
+from kivy.uix.modalview import ModalView
 from kivy.uix.label import Label
 from kivy.uix.button import Button
 from kivy.uix.boxlayout import BoxLayout
@@ -25,122 +28,149 @@ from kivy.uix.filechooser import FileChooserListView
 from kivy.uix.spinner import Spinner
 from kivy.uix.textinput import TextInput
 from kivy.uix.scrollview import ScrollView
-from kivy.uix.switch import Switch
-from kivy.uix.colorpicker import ColorPicker
+from kivy.uix.widget import Widget
 from kivy.clock import Clock
 from kivy.utils import platform
-from kivy.properties import ListProperty, StringProperty, BooleanProperty
+from kivy.properties import ObjectProperty, StringProperty, BooleanProperty, ListProperty, DictProperty
 from kivy.metrics import dp
+from kivy.graphics import Color, RoundedRectangle, Rectangle, Line
 
 if platform == 'android':
     try:
-        from android import activity
-        from jnius import autoclass, cast
+        from android import activity as _android_activity
+        from jnius import autoclass as _autoclass, cast as _cast
     except Exception:
         pass
 
-Window.clearcolor = (0.05, 0.05, 0.08, 1)
-
 # ==================== ТЕМА ====================
 DEFAULT_THEME = {
-    "bg_color": [0.05, 0.05, 0.08, 1],
-    "btn_bg": [0.13, 0.13, 0.18, 1],
-    "btn_border": [0.25, 0.45, 0.85, 1],
-    "btn_text": [1, 1, 1, 1],
-    "accent": [0.25, 0.45, 0.85, 1],
-    "input_bg": [0.08, 0.08, 0.12, 1],
-    "input_fg": [0.92, 0.92, 0.95, 1],
-    "title_color": [0.3, 0.6, 1, 1],
-    "label_muted": [0.5, 0.5, 0.6, 1],
-    "danger_bg": [0.7, 0.15, 0.15, 1],
-    "success_bg": [0.15, 0.55, 0.25, 1],
-    "log_bg": [0.06, 0.06, 0.1, 1],
+    "bg_color":     [0.05, 0.05, 0.08, 1],
+    "btn_bg":       [0.13, 0.13, 0.18, 1],
+    "btn_border":   [0.25, 0.45, 0.85, 1],
+    "btn_text":     [1,    1,    1,    1],
+    "accent":       [0.25, 0.45, 0.85, 1],
+    "input_bg":     [0.08, 0.08, 0.12, 1],
+    "input_fg":     [0.92, 0.92, 0.95, 1],
+    "title_color":  [0.3,  0.6,  1,    1],
+    "label_muted":  [0.5,  0.5,  0.6,  1],
+    "danger_bg":    [0.7,  0.15, 0.15, 1],
+    "success_bg":   [0.15, 0.55, 0.25, 1],
+    "log_bg":       [0.06, 0.06, 0.1,  1],
 }
 
 THEME_PRESETS = {
     "Тёмная (AMOLED)": DEFAULT_THEME.copy(),
     "Синяя ночь": {
         **DEFAULT_THEME,
-        "bg_color": [0.03, 0.05, 0.12, 1],
-        "btn_bg": [0.07, 0.1, 0.22, 1],
-        "btn_border": [0.2, 0.4, 0.9, 1],
-        "accent": [0.2, 0.4, 0.9, 1],
-        "input_bg": [0.05, 0.07, 0.15, 1],
-        "title_color": [0.4, 0.7, 1, 1],
+        "bg_color":    [0.03, 0.05, 0.12, 1],
+        "btn_bg":      [0.07, 0.10, 0.22, 1],
+        "btn_border":  [0.20, 0.40, 0.90, 1],
+        "accent":      [0.20, 0.40, 0.90, 1],
+        "input_bg":    [0.05, 0.07, 0.15, 1],
+        "title_color": [0.40, 0.70, 1.00, 1],
     },
     "Зелёная (Matrix)": {
         **DEFAULT_THEME,
-        "bg_color": [0.02, 0.06, 0.02, 1],
-        "btn_bg": [0.05, 0.13, 0.05, 1],
-        "btn_border": [0.1, 0.75, 0.1, 1],
-        "accent": [0.1, 0.75, 0.1, 1],
-        "input_bg": [0.04, 0.09, 0.04, 1],
-        "input_fg": [0.6, 1, 0.6, 1],
-        "title_color": [0.2, 1, 0.2, 1],
-        "label_muted": [0.3, 0.6, 0.3, 1],
+        "bg_color":    [0.02, 0.06, 0.02, 1],
+        "btn_bg":      [0.05, 0.13, 0.05, 1],
+        "btn_border":  [0.10, 0.75, 0.10, 1],
+        "accent":      [0.10, 0.75, 0.10, 1],
+        "input_bg":    [0.04, 0.09, 0.04, 1],
+        "input_fg":    [0.60, 1.00, 0.60, 1],
+        "title_color": [0.20, 1.00, 0.20, 1],
+        "label_muted": [0.30, 0.60, 0.30, 1],
     },
     "Пурпурная": {
         **DEFAULT_THEME,
-        "bg_color": [0.08, 0.04, 0.12, 1],
-        "btn_bg": [0.15, 0.08, 0.22, 1],
-        "btn_border": [0.6, 0.2, 0.9, 1],
-        "accent": [0.6, 0.2, 0.9, 1],
-        "input_bg": [0.1, 0.05, 0.15, 1],
-        "title_color": [0.8, 0.4, 1, 1],
+        "bg_color":    [0.08, 0.04, 0.12, 1],
+        "btn_bg":      [0.15, 0.08, 0.22, 1],
+        "btn_border":  [0.60, 0.20, 0.90, 1],
+        "accent":      [0.60, 0.20, 0.90, 1],
+        "input_bg":    [0.10, 0.05, 0.15, 1],
+        "title_color": [0.80, 0.40, 1.00, 1],
     },
 }
 
-SETTINGS_FILE = None  # будет задан после init
+SETTINGS_FILE = None
 
 # ==================== KV ====================
 KV = '''
 #:import dp kivy.metrics.dp
 
+# ── Кастомный переключатель (без системного Switch) ──────────────────
+<ToggleBtn@Button>:
+    active: False
+    background_normal: ''
+    background_color: 0, 0, 0, 0
+    size_hint_x: None
+    width: dp(52)
+    canvas.before:
+        Color:
+            rgba: app.theme['accent'] if self.active else app.theme['label_muted']
+        RoundedRectangle:
+            pos: self.x, self.y + self.height*0.2
+            size: self.width, self.height*0.6
+            radius: [self.height*0.3]
+        Color:
+            rgba: 1, 1, 1, 1
+        RoundedRectangle:
+            pos: (self.x + self.width - dp(22)) if self.active else (self.x + dp(2)), self.y + self.height*0.2 + dp(2)
+            size: self.height*0.6 - dp(4), self.height*0.6 - dp(4)
+            radius: [self.height*0.3]
+    on_release:
+        self.active = not self.active
+
+# ── Кнопка ────────────────────────────────────────────────────────────
 <StyledButton@Button>:
     background_normal: ''
-    background_color: app.theme['btn_bg']
+    background_color: 0, 0, 0, 0
     color: app.theme['btn_text']
     font_size: '15sp'
     bold: True
     canvas.before:
         Color:
             rgba: app.theme['btn_border']
-        Line:
-            width: 1.4
-            rounded_rectangle: self.x+1, self.y+1, self.width-2, self.height-2, 6
+        RoundedRectangle:
+            pos: self.x, self.y
+            size: self.width, self.height
+            radius: [7]
         Color:
             rgba: app.theme['btn_bg']
         RoundedRectangle:
-            pos: self.x+2, self.y+2
-            size: self.width-4, self.height-4
-            radius: [5]
+            pos: self.x+1.5, self.y+1.5
+            size: self.width-3, self.height-3
+            radius: [6]
 
 <DangerButton@Button>:
     background_normal: ''
-    background_color: app.theme['danger_bg']
+    background_color: 0, 0, 0, 0
     color: 1, 1, 1, 1
     font_size: '15sp'
     bold: True
     canvas.before:
         Color:
-            rgba: 1, 0.3, 0.3, 1
-        Line:
-            width: 1.2
-            rounded_rectangle: self.x+1, self.y+1, self.width-2, self.height-2, 6
+            rgba: 1, 0.3, 0.3, 0.8
+        RoundedRectangle:
+            pos: self.x, self.y
+            size: self.width, self.height
+            radius: [7]
         Color:
             rgba: app.theme['danger_bg']
         RoundedRectangle:
-            pos: self.x+2, self.y+2
-            size: self.width-4, self.height-4
-            radius: [5]
+            pos: self.x+1.5, self.y+1.5
+            size: self.width-3, self.height-3
+            radius: [6]
 
+# ── TextInput без пузыря выделения ────────────────────────────────────
 <StyledInput@TextInput>:
     background_color: app.theme['input_bg']
     foreground_color: app.theme['input_fg']
     cursor_color: app.theme['accent']
     font_size: '16sp'
     padding: [12, 10, 12, 10]
-    hint_text_color: 0.45, 0.45, 0.55, 1
+    hint_text_color: 0.40, 0.40, 0.55, 1
+    use_bubble: False
+    use_handles: False
 
 <SectionLabel@Label>:
     font_size: '13sp'
@@ -150,6 +180,7 @@ KV = '''
     halign: 'left'
     text_size: self.width, None
 
+# ── Экраны ────────────────────────────────────────────────────────────
 <MenuScreen>:
     canvas.before:
         Color:
@@ -173,7 +204,7 @@ KV = '''
                 on_touch_down: root.title_tapped(self, args[1])
             BoxLayout:
                 size_hint_x: None
-                width: dp(90)
+                width: dp(100)
                 spacing: dp(8)
                 StyledButton:
                     text: 'Логи'
@@ -181,8 +212,7 @@ KV = '''
                     disabled: not app.dev_mode
                     on_release: root.show_logs()
                 StyledButton:
-                    text: '[b]=[/b]'
-                    markup: True
+                    text: '='
                     on_release: root.manager.current = 'settings'
         SectionLabel:
             text: 'RSA + AES-256-GCM'
@@ -253,29 +283,28 @@ KV = '''
             font_size: '13sp'
             size_hint_y: None
             height: dp(0)
+        # Строка авто-копирования
         BoxLayout:
             size_hint_y: None
-            height: dp(42)
+            height: dp(44)
             spacing: dp(10)
-            padding: [dp(4), dp(4), dp(4), dp(4)]
+            padding: [dp(10), dp(4), dp(4), dp(4)]
             canvas.before:
                 Color:
                     rgba: app.theme['btn_bg']
                 RoundedRectangle:
                     pos: self.x, self.y
                     size: self.width, self.height
-                    radius: [6]
+                    radius: [7]
             Label:
                 text: 'Авто-копировать в буфер'
                 font_size: '14sp'
                 color: app.theme['btn_text']
-                size_hint_x: 0.72
                 halign: 'left'
-                text_size: self.width - dp(8), None
-            Switch:
+                text_size: self.width, None
+            ToggleBtn:
                 id: auto_copy_switch
                 active: True
-                size_hint_x: 0.28
         StyledInput:
             id: text_input
             hint_text: 'Введите текст для шифровки или вставьте JSON для расшифровки'
@@ -335,45 +364,45 @@ KV = '''
             height: dp(0)
         BoxLayout:
             size_hint_y: None
-            height: dp(42)
+            height: dp(44)
             spacing: dp(10)
-            padding: [dp(4), dp(4), dp(4), dp(4)]
+            padding: [dp(10), dp(4), dp(4), dp(4)]
             canvas.before:
                 Color:
                     rgba: app.theme['btn_bg']
                 RoundedRectangle:
                     pos: self.x, self.y
                     size: self.width, self.height
-                    radius: [6]
+                    radius: [7]
             Label:
                 text: 'Android Document UI'
                 font_size: '14sp'
                 color: app.theme['btn_text']
-                size_hint_x: 0.72
                 halign: 'left'
-                text_size: self.width - dp(8), None
-            Switch:
+                text_size: self.width, None
+            ToggleBtn:
                 id: native_switch
                 active: False
-                size_hint_x: 0.28
+        # Строка выбранного файла
         BoxLayout:
             size_hint_y: None
-            height: dp(40)
+            height: dp(42)
             canvas.before:
                 Color:
                     rgba: app.theme['input_bg']
                 RoundedRectangle:
                     pos: self.x, self.y
                     size: self.width, self.height
-                    radius: [5]
+                    radius: [6]
             Label:
                 id: file_label
                 text: 'Файл не выбран'
                 color: app.theme['label_muted']
                 font_size: '13sp'
                 halign: 'left'
-                padding_x: dp(10)
-                text_size: self.width - dp(10), None
+                valign: 'middle'
+                padding_x: dp(12)
+                text_size: self.width - dp(12), None
         StyledButton:
             text: 'Выбрать файл'
             size_hint_y: None
@@ -535,8 +564,7 @@ KV = '''
             height: dp(28)
         Spinner:
             id: preset_spinner
-            text: 'Тёмная (AMOLED)'
-            values: ['Темная (AMOLED)', 'Синяя ночь', 'Зеленая (Matrix)', 'Пурпурная']
+            text: 'Выберите пресет...'
             background_normal: ''
             background_color: app.theme['btn_bg']
             color: app.theme['btn_text']
@@ -545,7 +573,7 @@ KV = '''
             height: dp(46)
             on_text: root.apply_preset(self.text)
         SectionLabel:
-            text: 'Настройка цветов вручную:'
+            text: 'Ручная настройка цветов (HEX):'
             height: dp(28)
         ScrollView:
             BoxLayout:
@@ -556,9 +584,9 @@ KV = '''
                 spacing: dp(6)
         Widget:
             size_hint_y: None
-            height: dp(6)
+            height: dp(8)
         StyledButton:
-            text: 'Сохранить настройки'
+            text: 'Сохранить тему'
             size_hint_y: None
             height: dp(48)
             on_release: root.save_settings()
@@ -569,30 +597,122 @@ KV = '''
             on_release: root.manager.current = 'menu'
 '''
 
-# ==================== HELPERS ====================
+# ==================== УВЕДОМЛЕНИЕ ====================
 
 def show_msg(title, text):
+    """Простой надёжный попап-карточка. Открывается сразу, без Clock-хаков."""
     app = App.get_running_app()
-    theme = app.theme if app else DEFAULT_THEME
-    content = Label(
+    t = app.theme if app else DEFAULT_THEME
+
+    # ModalView — контейнер без стандартного фона
+    mv = ModalView(
+        size_hint=(0.88, None),
+        height=dp(1),           # временно; обновим после компоновки
+        background='',
+        background_color=[0, 0, 0, 0],
+        overlay_color=[0, 0, 0, 0.5],
+        auto_dismiss=True,
+    )
+
+    # Карточка
+    card = BoxLayout(
+        orientation='vertical',
+        padding=[dp(16), dp(16), dp(16), dp(8)],
+        spacing=dp(10),
+    )
+    with card.canvas.before:
+        Color(*t['input_bg'])
+        card_bg = RoundedRectangle(pos=card.pos, size=card.size, radius=[dp(14)])
+        Color(*t['btn_border'])
+        card_border = RoundedRectangle(
+            pos=(card.x - 1, card.y - 1),
+            size=(card.width + 2, card.height + 2),
+            radius=[dp(14)],
+        )
+    def _upd(inst, _):
+        card_bg.pos   = inst.pos;  card_bg.size   = inst.size
+        card_border.pos = (inst.x-1, inst.y-1); card_border.size = (inst.width+2, inst.height+2)
+    card.bind(pos=_upd, size=_upd)
+
+    # Акцентная полоска слева
+    row = BoxLayout(spacing=dp(12))
+    stripe = Widget(size_hint_x=None, width=dp(4))
+    with stripe.canvas:
+        Color(*t['accent'])
+        stripe_rect = RoundedRectangle(pos=stripe.pos, size=stripe.size, radius=[dp(4)])
+    stripe.bind(pos=lambda i,_: setattr(stripe_rect,'pos',i.pos),
+                size=lambda i,_: setattr(stripe_rect,'size',i.size))
+
+    texts = BoxLayout(orientation='vertical', spacing=dp(8))
+
+    title_lbl = Label(
+        text=title,
+        font_size='16sp',
+        bold=True,
+        color=t['title_color'],
+        size_hint_y=None,
+        height=dp(24),
+        halign='left',
+        valign='middle',
+    )
+    title_lbl.bind(size=lambda i,_: setattr(i,'text_size',(i.width, None)))
+
+    body_lbl = Label(
         text=text,
-        text_size=(dp(340), None),
-        color=theme['btn_text'],
+        font_size='14sp',
+        color=t['input_fg'],
+        size_hint_y=None,
         halign='left',
         valign='top',
     )
-    popup = Popup(
-        title=title,
-        content=content,
-        size_hint=(0.88, None),
-        height=dp(260),
-        background_color=theme['input_bg'],
-        title_color=theme['title_color'],
-        separator_color=theme['accent'],
-    )
-    content.bind(texture_size=lambda *a: content.setter('height')(content, content.texture_size[1]))
-    popup.open()
+    # Высота body под содержимое
+    def _body_size(inst, sz):
+        inst.text_size = (inst.width, None)
+    def _body_texture(inst, ts):
+        inst.height = max(ts[1], dp(18))
+    body_lbl.bind(size=_body_size, texture_size=_body_texture)
 
+    texts.add_widget(title_lbl)
+    texts.add_widget(body_lbl)
+    row.add_widget(stripe)
+    row.add_widget(texts)
+    card.add_widget(row)
+
+    # Разделитель
+    sep = Widget(size_hint_y=None, height=dp(1))
+    with sep.canvas:
+        Color(*t['btn_border'])
+        Rectangle(pos=sep.pos, size=sep.size)
+    sep.bind(pos=lambda i,_: setattr(sep.canvas.children[-1],'pos',i.pos),
+             size=lambda i,_: setattr(sep.canvas.children[-1],'size',i.size))
+    card.add_widget(sep)
+
+    ok_btn = Button(
+        text='OK',
+        size_hint_y=None,
+        height=dp(40),
+        background_normal='',
+        background_color=[0, 0, 0, 0],
+        color=t['accent'],
+        bold=True,
+        font_size='15sp',
+    )
+    ok_btn.bind(on_release=mv.dismiss)
+    card.add_widget(ok_btn)
+
+    mv.add_widget(card)
+
+    # Считаем высоту после добавления виджетов — texture ещё не готов,
+    # поэтому ставим разумный минимум и пересчитываем после первого frame
+    mv.height = dp(180)
+
+    def _fix_height(dt):
+        # body_lbl.texture_size уже посчитан
+        body_h = body_lbl.texture_size[1] if body_lbl.texture else dp(20)
+        mv.height = dp(24) + dp(10) + body_h + dp(10) + dp(1) + dp(40) + dp(16) + dp(8) + dp(32)
+
+    Clock.schedule_once(_fix_height, 0)
+    mv.open()
 
 # ==================== BACKEND ====================
 
@@ -600,9 +720,8 @@ class CryptoBackend:
     def __init__(self, data_dir):
         self.data_dir = data_dir
         self.keys_file = os.path.join(self.data_dir, "keys.json")
-        self.keys_dir = os.path.join(self.data_dir, "keys")
-        if not os.path.exists(self.keys_dir):
-            os.makedirs(self.keys_dir)
+        self.keys_dir  = os.path.join(self.data_dir, "keys")
+        os.makedirs(self.keys_dir, exist_ok=True)
         if not os.path.exists(self.keys_file):
             with open(self.keys_file, 'w') as f:
                 json.dump([], f)
@@ -623,43 +742,28 @@ class CryptoBackend:
         new_users = []
         for u in users:
             if u['username'] == username:
-                for key_type in ['public_key_path', 'private_key_path']:
-                    if u.get(key_type) and os.path.exists(u[key_type]):
-                        try:
-                            os.remove(u[key_type])
-                        except Exception:
-                            pass
+                for k in ['public_key_path', 'private_key_path']:
+                    if u.get(k) and os.path.exists(u[k]):
+                        try: os.remove(u[k])
+                        except: pass
             else:
                 new_users.append(u)
         self.save_users(new_users)
 
     def generate_key_pair(self, username, key_size):
-        current_time = datetime.now().strftime("%Y%m%d%H%M%S")
-        priv_filename = os.path.join(self.keys_dir, f"RSA_{username}_priv_{current_time}.pem")
-        pub_filename = os.path.join(self.keys_dir, f"RSA_{username}_pub_{current_time}.pem")
-
-        private_key = rsa.generate_private_key(
-            public_exponent=65537, key_size=key_size, backend=default_backend()
-        )
-        with open(priv_filename, 'wb') as f:
-            f.write(private_key.private_bytes(
-                encoding=serialization.Encoding.PEM,
-                format=serialization.PrivateFormat.PKCS8,
-                encryption_algorithm=serialization.NoEncryption()
-            ))
-        public_key = private_key.public_key()
-        with open(pub_filename, 'wb') as f:
-            f.write(public_key.public_bytes(
-                encoding=serialization.Encoding.PEM,
-                format=serialization.PublicFormat.SubjectPublicKeyInfo
-            ))
-
+        ts = datetime.now().strftime("%Y%m%d%H%M%S")
+        priv_f = os.path.join(self.keys_dir, f"RSA_{username}_priv_{ts}.pem")
+        pub_f  = os.path.join(self.keys_dir, f"RSA_{username}_pub_{ts}.pem")
+        pk = rsa.generate_private_key(65537, key_size, default_backend())
+        with open(priv_f, 'wb') as f:
+            f.write(pk.private_bytes(serialization.Encoding.PEM,
+                                     serialization.PrivateFormat.PKCS8,
+                                     serialization.NoEncryption()))
+        with open(pub_f, 'wb') as f:
+            f.write(pk.public_key().public_bytes(serialization.Encoding.PEM,
+                                                  serialization.PublicFormat.SubjectPublicKeyInfo))
         data = self.load_users()
-        data.append({
-            "username": username,
-            "public_key_path": pub_filename,
-            "private_key_path": priv_filename
-        })
+        data.append({"username": username, "public_key_path": pub_f, "private_key_path": priv_f})
         self.save_users(data)
 
     def add_friend_key(self, username, key_path, is_private=False):
@@ -668,16 +772,10 @@ class CryptoBackend:
         if not user:
             user = {"username": username}
             data.append(user)
-
-        key_name = os.path.basename(key_path)
-        new_path = os.path.join(self.keys_dir, key_name)
+        new_path = os.path.join(self.keys_dir, os.path.basename(key_path))
         with open(key_path, 'rb') as src, open(new_path, 'wb') as dst:
             dst.write(src.read())
-
-        if is_private:
-            user['private_key_path'] = new_path
-        else:
-            user['public_key_path'] = new_path
+        user['private_key_path' if is_private else 'public_key_path'] = new_path
         self.save_users(data)
 
     def add_friend_key_from_text(self, username, key_text, is_private=False):
@@ -686,438 +784,304 @@ class CryptoBackend:
         if not user:
             user = {"username": username}
             data.append(user)
-
-        current_time = datetime.now().strftime("%Y%m%d%H%M%S")
-        k_type = "priv" if is_private else "pub"
-        new_path = os.path.join(self.keys_dir, f"RSA_imported_{username}_{k_type}_{current_time}.pem")
-
+        ts = datetime.now().strftime("%Y%m%d%H%M%S")
+        kt = "priv" if is_private else "pub"
+        new_path = os.path.join(self.keys_dir, f"RSA_imported_{username}_{kt}_{ts}.pem")
         with open(new_path, 'w', encoding='utf-8') as f:
             f.write(key_text)
-
-        if is_private:
-            user['private_key_path'] = new_path
-        else:
-            user['public_key_path'] = new_path
+        user['private_key_path' if is_private else 'public_key_path'] = new_path
         self.save_users(data)
 
-    def encrypt_text_gcm(self, public_key_path, text):
-        aes_key = os.urandom(32)
-        iv = os.urandom(12)
-        encryptor = Cipher(algorithms.AES(aes_key), modes.GCM(iv), backend=default_backend()).encryptor()
-        ciphertext = encryptor.update(text.encode('utf-8')) + encryptor.finalize()
+    # ─── Крипто ───────────────────────────────────────────────────────
+    @staticmethod
+    def _oaep():
+        return padding.OAEP(mgf=padding.MGF1(hashes.SHA256()), algorithm=hashes.SHA256(), label=None)
 
-        with open(public_key_path, 'rb') as f:
-            public_key = serialization.load_pem_public_key(f.read(), backend=default_backend())
+    def encrypt_text_gcm(self, pub_key_path, text):
+        aes_key = os.urandom(32); iv = os.urandom(12)
+        enc = Cipher(algorithms.AES(aes_key), modes.GCM(iv), default_backend()).encryptor()
+        ct  = enc.update(text.encode()) + enc.finalize()
+        with open(pub_key_path, 'rb') as f:
+            pub = serialization.load_pem_public_key(f.read(), default_backend())
+        enc_key = pub.encrypt(aes_key, self._oaep())
+        return json.dumps({'aes_key': base64.b64encode(enc_key).decode(),
+                           'iv': base64.b64encode(iv).decode(),
+                           'tag': base64.b64encode(enc.tag).decode(),
+                           'ciphertext': base64.b64encode(ct).decode()})
 
-        encrypted_aes_key = public_key.encrypt(
-            aes_key, padding.OAEP(mgf=padding.MGF1(algorithm=hashes.SHA256()), algorithm=hashes.SHA256(), label=None)
-        )
-        return json.dumps({
-            'aes_key': base64.b64encode(encrypted_aes_key).decode('utf-8'),
-            'iv': base64.b64encode(iv).decode('utf-8'),
-            'tag': base64.b64encode(encryptor.tag).decode('utf-8'),
-            'ciphertext': base64.b64encode(ciphertext).decode('utf-8')
-        })
+    def decrypt_text_gcm(self, priv_key_path, json_str):
+        d = json.loads(json_str)
+        enc_key = base64.b64decode(d['aes_key']); iv  = base64.b64decode(d['iv'])
+        tag = base64.b64decode(d['tag']);          ct  = base64.b64decode(d['ciphertext'])
+        with open(priv_key_path, 'rb') as f:
+            priv = serialization.load_pem_private_key(f.read(), None, default_backend())
+        aes_key = priv.decrypt(enc_key, self._oaep())
+        dec = Cipher(algorithms.AES(aes_key), modes.GCM(iv, tag), default_backend()).decryptor()
+        return (dec.update(ct) + dec.finalize()).decode()
 
-    def decrypt_text_gcm(self, private_key_path, json_str):
-        data = json.loads(json_str)
-        encrypted_aes_key = base64.b64decode(data['aes_key'])
-        iv = base64.b64decode(data['iv'])
-        tag = base64.b64decode(data['tag'])
-        ciphertext = base64.b64decode(data['ciphertext'])
+    def encrypt_file_gcm(self, pub_key_path, file_path):
+        aes_key = os.urandom(32); iv = os.urandom(12)
+        enc = Cipher(algorithms.AES(aes_key), modes.GCM(iv), default_backend()).encryptor()
+        with open(file_path, 'rb') as f: plain = f.read()
+        ct = enc.update(plain) + enc.finalize()
+        with open(pub_key_path, 'rb') as f:
+            pub = serialization.load_pem_public_key(f.read(), default_backend())
+        enc_key = pub.encrypt(aes_key, self._oaep())
+        out = file_path + ".enc"
+        with open(out, 'wb') as f: f.write(enc_key + iv + enc.tag + ct)
+        return out
 
-        with open(private_key_path, 'rb') as f:
-            private_key = serialization.load_pem_private_key(f.read(), password=None, backend=default_backend())
-
-        aes_key = private_key.decrypt(
-            encrypted_aes_key, padding.OAEP(mgf=padding.MGF1(algorithm=hashes.SHA256()), algorithm=hashes.SHA256(), label=None)
-        )
-        decryptor = Cipher(algorithms.AES(aes_key), modes.GCM(iv, tag), backend=default_backend()).decryptor()
-        return (decryptor.update(ciphertext) + decryptor.finalize()).decode('utf-8')
-
-    def encrypt_file_gcm(self, public_key_path, file_path):
-        aes_key = os.urandom(32)
-        iv = os.urandom(12)
-        encryptor = Cipher(algorithms.AES(aes_key), modes.GCM(iv), backend=default_backend()).encryptor()
-
+    def decrypt_file_gcm(self, priv_key_path, file_path):
         with open(file_path, 'rb') as f:
-            plaintext = f.read()
-        ciphertext = encryptor.update(plaintext) + encryptor.finalize()
+            enc_key = f.read(512); iv = f.read(12); tag = f.read(16); ct = f.read()
+        with open(priv_key_path, 'rb') as f:
+            priv = serialization.load_pem_private_key(f.read(), None, default_backend())
+        aes_key = priv.decrypt(enc_key, self._oaep())
+        dec = Cipher(algorithms.AES(aes_key), modes.GCM(iv, tag), default_backend()).decryptor()
+        data = dec.update(ct) + dec.finalize()
+        out = file_path[:-4] if file_path.lower().endswith('.enc') else file_path + ".dec"
+        with open(out, 'wb') as f: f.write(data)
+        return out
 
-        with open(public_key_path, 'rb') as f:
-            public_key = serialization.load_pem_public_key(f.read(), backend=default_backend())
-
-        encrypted_aes_key = public_key.encrypt(
-            aes_key, padding.OAEP(mgf=padding.MGF1(algorithm=hashes.SHA256()), algorithm=hashes.SHA256(), label=None)
-        )
-
-        out_path = file_path + ".enc"
-        with open(out_path, 'wb') as f:
-            f.write(encrypted_aes_key + iv + encryptor.tag + ciphertext)
-        return out_path
-
-    def decrypt_file_gcm(self, private_key_path, file_path):
-        with open(file_path, 'rb') as f:
-            encrypted_aes_key = f.read(512)
-            iv = f.read(12)
-            tag = f.read(16)
-            ciphertext = f.read()
-
-        with open(private_key_path, 'rb') as f:
-            private_key = serialization.load_pem_private_key(f.read(), password=None, backend=default_backend())
-
-        aes_key = private_key.decrypt(
-            encrypted_aes_key, padding.OAEP(mgf=padding.MGF1(algorithm=hashes.SHA256()), algorithm=hashes.SHA256(), label=None)
-        )
-
-        decryptor = Cipher(algorithms.AES(aes_key), modes.GCM(iv, tag), backend=default_backend()).decryptor()
-        decrypted_data = decryptor.update(ciphertext) + decryptor.finalize()
-
-        if file_path.lower().endswith('.enc'):
-            out_path = file_path[:-4]
-        else:
-            out_path = file_path + ".dec"
-        with open(out_path, 'wb') as f:
-            f.write(decrypted_data)
-        return out_path
-
-    def encrypt_group(self, public_keys_dict, text):
-        aes_key = os.urandom(32)
-        iv = os.urandom(12)
-        encryptor = Cipher(algorithms.AES(aes_key), modes.GCM(iv), backend=default_backend()).encryptor()
-        ciphertext = encryptor.update(text.encode('utf-8')) + encryptor.finalize()
-
-        encrypted_keys = {}
-        for username, pub_path in public_keys_dict.items():
-            with open(pub_path, 'rb') as f:
-                pub_key = serialization.load_pem_public_key(f.read(), backend=default_backend())
-            enc_aes = pub_key.encrypt(
-                aes_key, padding.OAEP(mgf=padding.MGF1(algorithm=hashes.SHA256()), algorithm=hashes.SHA256(), label=None)
-            )
-            encrypted_keys[username] = base64.b64encode(enc_aes).decode('utf-8')
-
-        payload = {
-            "type": "group_message_gcm",
-            "iv": base64.b64encode(iv).decode('utf-8'),
-            "tag": base64.b64encode(encryptor.tag).decode('utf-8'),
-            "ciphertext": base64.b64encode(ciphertext).decode('utf-8'),
-            "keys": encrypted_keys
-        }
-        return json.dumps(payload, ensure_ascii=False)
+    def encrypt_group(self, pub_dict, text):
+        aes_key = os.urandom(32); iv = os.urandom(12)
+        enc = Cipher(algorithms.AES(aes_key), modes.GCM(iv), default_backend()).encryptor()
+        ct = enc.update(text.encode()) + enc.finalize()
+        keys = {}
+        for name, path in pub_dict.items():
+            with open(path, 'rb') as f:
+                pub = serialization.load_pem_public_key(f.read(), default_backend())
+            keys[name] = base64.b64encode(pub.encrypt(aes_key, self._oaep())).decode()
+        return json.dumps({"type": "group_message_gcm",
+                           "iv": base64.b64encode(iv).decode(),
+                           "tag": base64.b64encode(enc.tag).decode(),
+                           "ciphertext": base64.b64encode(ct).decode(),
+                           "keys": keys}, ensure_ascii=False)
 
     def decrypt_group(self, payload_str):
-        payload = json.loads(payload_str)
-        users = self.load_users()
-
-        for user in users:
-            if user['username'] in payload.get("keys", {}) and user.get("private_key_path"):
-                target_priv_key = user['private_key_path']
-                enc_aes_key_b64 = payload["keys"][user['username']]
-                break
-        else:
-            raise Exception("Нет подходящего приватного ключа для расшифровки.")
-
-        encrypted_aes_key = base64.b64decode(enc_aes_key_b64)
-        iv = base64.b64decode(payload['iv'])
-        tag = base64.b64decode(payload['tag'])
-        ciphertext = base64.b64decode(payload['ciphertext'])
-
-        with open(target_priv_key, 'rb') as f:
-            priv_key = serialization.load_pem_private_key(f.read(), password=None, backend=default_backend())
-
-        aes_key = priv_key.decrypt(
-            encrypted_aes_key, padding.OAEP(mgf=padding.MGF1(algorithm=hashes.SHA256()), algorithm=hashes.SHA256(), label=None)
-        )
-
-        decryptor = Cipher(algorithms.AES(aes_key), modes.GCM(iv, tag), backend=default_backend()).decryptor()
-        return (decryptor.update(ciphertext) + decryptor.finalize()).decode('utf-8')
+        p = json.loads(payload_str)
+        for user in self.load_users():
+            if user['username'] in p.get("keys", {}) and user.get("private_key_path"):
+                enc_key = base64.b64decode(p["keys"][user['username']])
+                iv  = base64.b64decode(p['iv']);  tag = base64.b64decode(p['tag'])
+                ct  = base64.b64decode(p['ciphertext'])
+                with open(user['private_key_path'], 'rb') as f:
+                    priv = serialization.load_pem_private_key(f.read(), None, default_backend())
+                aes_key = priv.decrypt(enc_key, self._oaep())
+                dec = Cipher(algorithms.AES(aes_key), modes.GCM(iv, tag), default_backend()).decryptor()
+                return (dec.update(ct) + dec.finalize()).decode()
+        raise Exception("Нет подходящего приватного ключа для расшифровки.")
 
 
 # ==================== ЭКРАНЫ ====================
 
 class MenuScreen(Screen):
     taps = 0
-
     def title_tapped(self, widget, touch):
         if widget.collide_point(*touch.pos):
             self.taps += 1
             if self.taps >= 10:
                 app = App.get_running_app()
                 app.dev_mode = not app.dev_mode
-                status = "ВКЛЮЧЁН" if app.dev_mode else "ВЫКЛЮЧЕН"
-                show_msg("Режим разработчика", f"Режим разработчика {status}\nПовтори 10 нажатий для смены.")
+                show_msg("Режим разработчика",
+                         f"{'ВКЛЮЧЁН' if app.dev_mode else 'ВЫКЛЮЧЕН'}\n10 тапов для смены.")
                 self.taps = 0
 
     def show_help(self):
-        help_text = (
-            "Как начать:\n\n"
-            "1. Ключи и Пользователи - Сгенерировать свои ключи\n"
-            "2. Добавь друзей (Из файла / Текстом)\n"
-            "3. В шифровании текста можно включить авто-копирование\n"
-            "4. В файлах можно переключить Android Document UI\n"
-            "5. Настройки - смена темы и цветов интерфейса\n"
-            "6. Логи доступны в режиме разработчика (10 тапов по заголовку)"
-        )
-        popup = Popup(
-            title="Помощь",
-            content=Label(text=help_text, text_size=(dp(360), None), halign='left', valign='top'),
-            size_hint=(0.9, 0.8)
-        )
-        popup.open()
+        show_msg("Помощь",
+                 "1. Ключи → Сгенерировать свои ключи\n"
+                 "2. Добавь друзей (Из файла / Текстом)\n"
+                 "3. Текст → авто-копирование по переключателю\n"
+                 "4. Файлы → переключи Document UI для системного пикера\n"
+                 "5. Настройки → тема, цвета\n"
+                 "6. Логи → 10 тапов по заголовку (dev mode)")
 
     def show_logs(self):
         app = App.get_running_app()
-        theme = app.theme
+        t = app.theme
         if not app.action_log:
-            content = Label(text="Логов пока нет.", color=theme['label_muted'])
-        else:
-            sv = ScrollView()
-            box = BoxLayout(orientation='vertical', size_hint_y=None, spacing=dp(2), padding=dp(6))
-            box.bind(minimum_height=box.setter('height'))
-            for line in reversed(app.action_log):
-                lbl = Label(
-                    text=line,
-                    size_hint_y=None,
-                    height=dp(32),
-                    halign='left',
-                    valign='middle',
-                    text_size=(dp(500), None),
-                    color=theme['input_fg'],
-                    font_size='13sp',
-                )
-                box.add_widget(lbl)
-            sv.add_widget(box)
-            content = sv
-        popup = Popup(
-            title="Логи приложения (dev mode)",
-            content=content,
-            size_hint=(0.95, 0.85),
-            background_color=theme['log_bg'],
-            title_color=theme['title_color'],
-            separator_color=theme['accent'],
-        )
-        popup.open()
+            show_msg("Логи", "Логов пока нет.")
+            return
+        sv = ScrollView()
+        box = BoxLayout(orientation='vertical', size_hint_y=None, spacing=dp(2), padding=dp(6))
+        box.bind(minimum_height=box.setter('height'))
+        for line in reversed(app.action_log):
+            lbl = Label(text=line, size_hint_y=None, height=dp(30), halign='left', valign='middle',
+                        color=t['input_fg'], font_size='12sp')
+            lbl.bind(width=lambda i, v: setattr(i, 'text_size', (v, None)))
+            box.add_widget(lbl)
+        sv.add_widget(box)
+        mv = ModalView(size_hint=(0.95, 0.85), background_color=t['log_bg'])
+        outer = BoxLayout(orientation='vertical', padding=dp(10), spacing=dp(8))
+        outer.add_widget(Label(text="Логи (dev mode)", font_size='16sp', bold=True,
+                               color=t['title_color'], size_hint_y=None, height=dp(36)))
+        outer.add_widget(sv)
+        btn = Button(text='Закрыть', size_hint_y=None, height=dp(42),
+                     background_normal='', background_color=t['btn_bg'], color=t['btn_text'])
+        btn.bind(on_release=mv.dismiss)
+        outer.add_widget(btn)
+        mv.add_widget(outer)
+        mv.open()
 
 
 class KeysScreen(Screen):
-    def on_enter(self):
-        self.refresh_users()
+    def on_enter(self): self.refresh_users()
 
     def refresh_users(self):
-        backend = App.get_running_app().backend
-        users = backend.load_users()
         layout = self.ids.users_list
         layout.clear_widgets()
-        theme = App.get_running_app().theme
-        for u in users:
-            has_pub = bool(u.get('public_key_path'))
-            has_priv = bool(u.get('private_key_path'))
-            text = f"{u['username']}\nПуб: {'OK' if has_pub else '--'}   Прив: {'OK' if has_priv else '--'}"
-            btn = Button(
-                text=text,
-                size_hint_y=None,
-                height=dp(64),
-                background_normal='',
-                background_color=theme['btn_bg'],
-                color=theme['btn_text'],
-                halign='left',
-                valign='middle',
-                text_size=(Window.width - dp(60), None),
-                font_size='14sp',
-            )
+        t = App.get_running_app().theme
+        for u in App.get_running_app().backend.load_users():
+            hp = bool(u.get('public_key_path')); hpr = bool(u.get('private_key_path'))
+            text = f"{u['username']}\nПуб: {'OK' if hp else '--'}   Прив: {'OK' if hpr else '--'}"
+            btn = Button(text=text, size_hint_y=None, height=dp(64),
+                         background_normal='', background_color=t['btn_bg'],
+                         color=t['btn_text'], halign='left', valign='middle',
+                         text_size=(Window.width - dp(60), None), font_size='14sp')
             btn.bind(on_release=lambda x, user=u: self.show_user_options(user))
             layout.add_widget(btn)
 
     def show_user_options(self, user):
-        app = App.get_running_app()
-        theme = app.theme
-        box = BoxLayout(orientation='vertical', padding=dp(10), spacing=dp(8))
+        app = App.get_running_app(); t = app.theme
+        mv = ModalView(size_hint=(0.92, 0.88), background_color=t['input_bg'])
+        box = BoxLayout(orientation='vertical', padding=dp(12), spacing=dp(8))
 
         pub_text = "Публичный ключ отсутствует"
         if user.get('public_key_path') and os.path.exists(user['public_key_path']):
-            with open(user['public_key_path'], 'r') as f:
-                pub_text = f.read()
+            with open(user['public_key_path']) as f: pub_text = f.read()
 
-        pub_view = TextInput(
-            text=pub_text, readonly=True,
-            background_color=theme['input_bg'],
-            foreground_color=theme['accent'],
-            font_size='10sp', size_hint_y=0.45,
-        )
-        copy_pub = Button(
-            text="Копировать публичный ключ",
-            size_hint_y=None, height=dp(42),
-            background_normal='', background_color=theme['btn_bg'],
-            color=theme['btn_text'],
-        )
-
-        if app.dev_mode and user.get('private_key_path') and os.path.exists(user['private_key_path']):
-            with open(user['private_key_path'], 'r') as f:
-                priv_text = f.read()
-            priv_view = TextInput(
-                text=priv_text, readonly=True,
-                background_color=[0.12, 0.03, 0.03, 1],
-                foreground_color=[1, 0.4, 0.4, 1],
-                font_size='10sp', size_hint_y=0.3,
-            )
-            copy_priv = Button(
-                text="Копировать приватный ключ (ОПАСНО!)",
-                size_hint_y=None, height=dp(42),
-                background_normal='', background_color=theme['danger_bg'],
-                color=[1, 1, 1, 1],
-            )
-            box.add_widget(Label(text="ПРИВАТНЫЙ КЛЮЧ (dev mode)", size_hint_y=None, height=dp(28), color=[1, 0.4, 0.4, 1]))
-            box.add_widget(priv_view)
-            box.add_widget(copy_priv)
-
-            def copy_priv_key(_):
-                Clipboard.copy(priv_text)
-                show_msg("Скопировано", "Приватный ключ в буфере")
-            copy_priv.bind(on_release=copy_priv_key)
-
-        box.add_widget(Label(text=f"Пользователь: {user['username']}", size_hint_y=None, height=dp(32), color=theme['title_color']))
+        box.add_widget(Label(text=f"Пользователь: {user['username']}", size_hint_y=None,
+                             height=dp(32), color=t['title_color'], bold=True))
+        pub_view = TextInput(text=pub_text, readonly=True, background_color=t['input_bg'],
+                             foreground_color=t['accent'], font_size='10sp', size_hint_y=0.45,
+                             use_bubble=False, use_handles=False)
         box.add_widget(pub_view)
+
+        copy_pub = Button(text="Копировать публичный ключ", size_hint_y=None, height=dp(42),
+                          background_normal='', background_color=t['btn_bg'], color=t['btn_text'])
+        copy_pub.bind(on_release=lambda _: (Clipboard.copy(pub_text),
+                                             show_msg("Скопировано", "Публичный ключ в буфере")))
         box.add_widget(copy_pub)
 
-        del_btn = Button(
-            text="Удалить пользователя",
-            size_hint_y=None, height=dp(42),
-            background_normal='', background_color=theme['danger_bg'],
-            color=[1, 1, 1, 1],
-        )
-        box.add_widget(del_btn)
+        if app.dev_mode and user.get('private_key_path') and os.path.exists(user['private_key_path']):
+            with open(user['private_key_path']) as f: priv_text = f.read()
+            box.add_widget(Label(text="ПРИВАТНЫЙ КЛЮЧ (dev mode)", size_hint_y=None,
+                                 height=dp(28), color=[1, 0.4, 0.4, 1]))
+            prv = TextInput(text=priv_text, readonly=True,
+                            background_color=[0.12, 0.03, 0.03, 1],
+                            foreground_color=[1, 0.4, 0.4, 1], font_size='10sp', size_hint_y=0.3,
+                            use_bubble=False, use_handles=False)
+            box.add_widget(prv)
+            cp = Button(text="Копировать приватный ключ (ОПАСНО!)", size_hint_y=None, height=dp(42),
+                        background_normal='', background_color=t['danger_bg'], color=[1,1,1,1])
+            cp.bind(on_release=lambda _: (Clipboard.copy(priv_text),
+                                           show_msg("Скопировано", "Приватный ключ в буфере")))
+            box.add_widget(cp)
 
-        popup = Popup(
-            title="Управление пользователем",
-            content=box, size_hint=(0.9, 0.9),
-            background_color=theme['input_bg'],
-            title_color=theme['title_color'],
-        )
+        del_btn = Button(text="Удалить пользователя", size_hint_y=None, height=dp(42),
+                         background_normal='', background_color=t['danger_bg'], color=[1,1,1,1])
+        close_btn = Button(text="Закрыть", size_hint_y=None, height=dp(42),
+                           background_normal='', background_color=t['btn_bg'], color=t['btn_text'])
 
-        def copy_pub_key(_):
-            Clipboard.copy(pub_text)
-            show_msg("Скопировано", "Публичный ключ в буфере обмена")
-        copy_pub.bind(on_release=copy_pub_key)
-
-        def delete_confirm(_):
-            App.get_running_app().backend.delete_user(user['username'])
-            popup.dismiss()
-            self.refresh_users()
-            App.get_running_app().log_action(f"Удалён пользователь {user['username']}")
+        def do_delete(_):
+            app.backend.delete_user(user['username'])
+            mv.dismiss(); self.refresh_users()
+            app.log_action(f"Удалён пользователь {user['username']}")
             show_msg("Удалено", f"Пользователь {user['username']} удалён")
-        del_btn.bind(on_release=delete_confirm)
 
-        popup.open()
+        del_btn.bind(on_release=do_delete)
+        close_btn.bind(on_release=mv.dismiss)
+        box.add_widget(del_btn)
+        box.add_widget(close_btn)
+        mv.add_widget(box); mv.open()
+
+    def _styled_input(self, **kw):
+        t = App.get_running_app().theme
+        return TextInput(background_color=t['input_bg'], foreground_color=t['input_fg'],
+                         use_bubble=False, use_handles=False, **kw)
+
+    def _styled_btn(self, text, color_key='accent', **kw):
+        t = App.get_running_app().theme
+        return Button(text=text, background_normal='', background_color=t[color_key],
+                      color=[1,1,1,1], **kw)
 
     def generate_keys_dialog(self):
-        theme = App.get_running_app().theme
-        box = BoxLayout(orientation='vertical', spacing=dp(10), padding=dp(10))
-        inp = TextInput(
-            hint_text="Имя пользователя", size_hint_y=None, height=dp(48),
-            background_color=theme['input_bg'], foreground_color=theme['input_fg'],
-        )
-        spinner = Spinner(
-            text='4096', values=('2048', '4096'),
-            size_hint_y=None, height=dp(46),
-            background_normal='', background_color=theme['btn_bg'],
-            color=theme['btn_text'],
-        )
-        btn = Button(
-            text="Создать", size_hint_y=None, height=dp(52),
-            background_normal='', background_color=theme['accent'],
-            color=[1, 1, 1, 1],
-        )
+        t = App.get_running_app().theme
+        mv = ModalView(size_hint=(0.85, 0.52), background_color=t['input_bg'])
+        box = BoxLayout(orientation='vertical', spacing=dp(10), padding=dp(12))
+        inp = self._styled_input(hint_text="Имя пользователя", size_hint_y=None, height=dp(48), multiline=False)
+        sp  = Spinner(text='4096', values=('2048','4096'), size_hint_y=None, height=dp(46),
+                      background_normal='', background_color=t['btn_bg'], color=t['btn_text'])
+        btn = self._styled_btn("Создать", size_hint_y=None, height=dp(52))
         box.add_widget(inp)
-        box.add_widget(Label(text="Размер RSA ключа (бит):", size_hint_y=None, height=dp(28), color=theme['label_muted']))
-        box.add_widget(spinner)
-        box.add_widget(btn)
+        box.add_widget(Label(text="Размер RSA ключа (бит):", size_hint_y=None, height=dp(28),
+                             color=t['label_muted']))
+        box.add_widget(sp); box.add_widget(btn)
+        mv.add_widget(box)
 
-        popup = Popup(title="Генерация ключей", content=box, size_hint=(0.85, 0.55),
-                      background_color=theme['input_bg'], title_color=theme['title_color'])
+        def on_create(_):
+            if not inp.text.strip(): return
+            size = int(sp.text)
+            wait = ModalView(size_hint=(0.8, 0.32), background_color=t['input_bg'], auto_dismiss=False)
+            wait.add_widget(Label(text=f"Создаём {size}-бит ключи...\nПодождите",
+                                  color=t['input_fg']))
+            mv.dismiss(); wait.open()
+            threading.Thread(target=self._gen_thread, args=(inp.text.strip(), size, wait)).start()
 
-        def on_create(instance):
-            if not inp.text.strip():
-                return
-            size = int(spinner.text)
-            wait_popup = Popup(
-                title="Генерация...",
-                content=Label(text=f"Создаём {size}-бит ключи...\nПодождите", color=theme['input_fg']),
-                size_hint=(0.8, 0.35), auto_dismiss=False,
-                background_color=theme['input_bg'], title_color=theme['title_color'],
-            )
-            popup.dismiss()
-            wait_popup.open()
-            threading.Thread(target=self._gen_keys_thread, args=(inp.text.strip(), size, wait_popup)).start()
+        btn.bind(on_release=on_create); mv.open()
 
-        btn.bind(on_release=on_create)
-        popup.open()
-
-    def _gen_keys_thread(self, username, size, wait_popup):
+    def _gen_thread(self, username, size, wait):
         try:
             App.get_running_app().backend.generate_key_pair(username, size)
-            Clock.schedule_once(lambda dt: [self.refresh_users(), wait_popup.dismiss(),
+            Clock.schedule_once(lambda dt: [self.refresh_users(), wait.dismiss(),
                                             show_msg("Успех", f"Ключи для {username} созданы!")], 0)
         except Exception as e:
-            Clock.schedule_once(lambda dt: [wait_popup.dismiss(), show_msg("Ошибка", str(e))], 0)
+            Clock.schedule_once(lambda dt: [wait.dismiss(), show_msg("Ошибка", str(e))], 0)
 
     def add_key_dialog(self):
-        storage_path = '/storage/emulated/0/Download' if platform == 'android' else os.path.expanduser('~')
-        chooser = FileChooserListView(path=storage_path, filters=['*.pem'])
+        path = '/storage/emulated/0/Download' if platform == 'android' else os.path.expanduser('~')
+        chooser = FileChooserListView(path=path, filters=['*.pem'])
         box = BoxLayout(orientation='vertical')
         box.add_widget(chooser)
+        t   = App.get_running_app().theme
         btn = Button(text="Выбрать как публичный", size_hint_y=None, height=dp(48),
-                     background_normal='', background_color=App.get_running_app().theme['btn_bg'])
+                     background_normal='', background_color=t['accent'])
         box.add_widget(btn)
-        popup = Popup(title="Выбор файла ключа", content=box, size_hint=(0.9, 0.9))
+        popup = ModalView(size_hint=(0.95, 0.92))
+        popup.add_widget(box)
 
-        def on_select(instance):
-            if chooser.selection:
-                path = chooser.selection[0]
-                name_box = BoxLayout(orientation='vertical', padding=dp(10), spacing=dp(8))
-                name_inp = TextInput(hint_text="Имя владельца", size_hint_y=0.6)
-                ok_btn = Button(text="Сохранить", size_hint_y=0.4, background_normal='',
-                                background_color=App.get_running_app().theme['accent'])
-                name_box.add_widget(name_inp)
-                name_box.add_widget(ok_btn)
-                name_popup = Popup(title="Имя пользователя", content=name_box, size_hint=(0.75, 0.32))
-
-                def save_key(_):
-                    if name_inp.text.strip():
-                        App.get_running_app().backend.add_friend_key(name_inp.text.strip(), path, False)
-                        name_popup.dismiss()
-                        popup.dismiss()
-                        self.refresh_users()
-                        show_msg("Готово", "Ключ добавлен")
-                ok_btn.bind(on_release=save_key)
-                name_popup.open()
-        btn.bind(on_release=on_select)
-        popup.open()
+        def on_sel(_):
+            if not chooser.selection: return
+            fpath = chooser.selection[0]
+            ni = self._styled_input(hint_text="Имя владельца", size_hint_y=0.6, multiline=False)
+            ok = self._styled_btn("Сохранить", size_hint_y=0.4)
+            nb = BoxLayout(orientation='vertical', padding=dp(10), spacing=dp(8))
+            nb.add_widget(ni); nb.add_widget(ok)
+            np_ = ModalView(size_hint=(0.78, 0.3))
+            np_.add_widget(nb)
+            def save(_):
+                if ni.text.strip():
+                    App.get_running_app().backend.add_friend_key(ni.text.strip(), fpath, False)
+                    np_.dismiss(); popup.dismiss(); self.refresh_users()
+                    show_msg("Готово", "Ключ добавлен")
+            ok.bind(on_release=save); np_.open()
+        btn.bind(on_release=on_sel); popup.open()
 
     def add_key_text_dialog(self):
-        theme = App.get_running_app().theme
-        box = BoxLayout(orientation='vertical', spacing=dp(10), padding=dp(10))
-        inp_name = TextInput(hint_text="Имя пользователя", size_hint_y=None, height=dp(48),
-                             background_color=theme['input_bg'], foreground_color=theme['input_fg'])
-        inp_key = TextInput(hint_text="Вставьте PEM ключ сюда...",
-                            background_color=theme['input_bg'], foreground_color=theme['input_fg'])
-        btn = Button(text="Сохранить как публичный", size_hint_y=None, height=dp(52),
-                     background_normal='', background_color=theme['accent'], color=[1, 1, 1, 1])
-
-        box.add_widget(inp_name)
-        box.add_widget(inp_key)
-        box.add_widget(btn)
-
-        popup = Popup(title="Импорт ключа текстом", content=box, size_hint=(0.9, 0.78),
-                      background_color=theme['input_bg'], title_color=theme['title_color'])
-
-        def save(instance):
-            if inp_name.text.strip() and inp_key.text.strip():
-                App.get_running_app().backend.add_friend_key_from_text(inp_name.text.strip(), inp_key.text.strip(), False)
-                popup.dismiss()
-                self.refresh_users()
+        t = App.get_running_app().theme
+        mv = ModalView(size_hint=(0.92, 0.78), background_color=t['input_bg'])
+        box = BoxLayout(orientation='vertical', spacing=dp(10), padding=dp(12))
+        n_inp = self._styled_input(hint_text="Имя пользователя", size_hint_y=None, height=dp(48), multiline=False)
+        k_inp = self._styled_input(hint_text="Вставьте PEM ключ сюда...")
+        btn   = self._styled_btn("Сохранить как публичный", size_hint_y=None, height=dp(52))
+        box.add_widget(n_inp); box.add_widget(k_inp); box.add_widget(btn)
+        mv.add_widget(box)
+        def save(_):
+            if n_inp.text.strip() and k_inp.text.strip():
+                App.get_running_app().backend.add_friend_key_from_text(n_inp.text.strip(), k_inp.text.strip(), False)
+                mv.dismiss(); self.refresh_users()
                 show_msg("Готово", "Ключ импортирован")
-        btn.bind(on_release=save)
-        popup.open()
+        btn.bind(on_release=save); mv.open()
 
 
 class TextScreen(Screen):
@@ -1126,15 +1090,13 @@ class TextScreen(Screen):
         self.ids.user_spinner.values = [u['username'] for u in users if u.get('public_key_path')]
         self._hide_warning()
 
-    def _show_warning(self, text="Выберите пользователя из списка!"):
-        w = self.ids.user_warning
-        w.text = text
-        w.height = dp(28)
+    def _show_warning(self, txt="Выберите пользователя из списка!"):
+        self.ids.user_warning.text = txt
+        self.ids.user_warning.height = dp(28)
 
     def _hide_warning(self):
-        w = self.ids.user_warning
-        w.text = ''
-        w.height = dp(0)
+        self.ids.user_warning.text = ''
+        self.ids.user_warning.height = dp(0)
 
     def clear_field(self):
         self.ids.text_input.text = ''
@@ -1144,76 +1106,73 @@ class TextScreen(Screen):
         username = self.ids.user_spinner.text
         text = self.ids.text_input.text.strip()
         if username == 'Выберите пользователя' or not username:
-            self._show_warning("Выберите пользователя из списка!")
-            return
+            self._show_warning(); return
         if not text:
-            show_msg("Ошибка", "Введите текст для шифрования!")
-            return
+            show_msg("Ошибка", "Введите текст!"); return
         self._hide_warning()
         backend = App.get_running_app().backend
         user = next((u for u in backend.load_users() if u['username'] == username), None)
         if not user or not user.get('public_key_path'):
-            show_msg("Ошибка", "У пользователя нет публичного ключа!")
-            return
+            show_msg("Ошибка", "У пользователя нет публичного ключа!"); return
         try:
             res = backend.encrypt_text_gcm(user['public_key_path'], text)
             self.ids.text_input.text = res
-            # FIX: уважаем переключатель авто-копирования
             if self.ids.auto_copy_switch.active:
                 Clipboard.copy(res)
-                show_msg("Успех", "Текст зашифрован и скопирован в буфер!")
+                show_msg("Успех", "Зашифровано и скопировано в буфер!")
             else:
                 show_msg("Успех", "Текст зашифрован!")
             App.get_running_app().log_action(f"Зашифрован текст для {username}")
         except Exception as e:
-            show_msg("Ошибка", str(e))
+            show_msg("Ошибка шифрования", str(e))
 
     def decrypt_action(self):
         username = self.ids.user_spinner.text
         text = self.ids.text_input.text.strip()
         if username == 'Выберите пользователя' or not username:
-            self._show_warning("Выберите пользователя из списка!")
-            return
+            self._show_warning(); return
         if not text:
-            show_msg("Ошибка", "Вставьте зашифрованный JSON!")
-            return
+            show_msg("Ошибка", "Вставьте зашифрованный JSON!"); return
         self._hide_warning()
         backend = App.get_running_app().backend
         user = next((u for u in backend.load_users() if u['username'] == username), None)
         if not user or not user.get('private_key_path'):
-            show_msg("Ошибка", "Нет приватного ключа для этого пользователя!")
-            return
+            show_msg("Ошибка", "Нет приватного ключа!"); return
         try:
             res = backend.decrypt_text_gcm(user['private_key_path'], text)
             self.ids.text_input.text = res
-            show_msg("Успех", "Текст расшифрован")
+            show_msg("Успех", "Текст расшифрован!")
             App.get_running_app().log_action(f"Расшифрован текст для {username}")
         except Exception as e:
             show_msg("Ошибка расшифровки", str(e))
 
 
+# ────────────────────────────────────────────────────────────────────
+# Файловый экран — главная точка фикса Document UI
+# ────────────────────────────────────────────────────────────────────
 class FileScreen(Screen):
+    # Здесь хранится итоговый ПУТЬ к файлу (строка, всегда читаемый файл)
     selected_file = None
+    # Для случая Document UI хранит URI пока файл не скопирован
+    _pending_uri = None
 
     def on_enter(self):
         users = App.get_running_app().backend.load_users()
         self.ids.user_spinner.values = [u['username'] for u in users if u.get('public_key_path')]
         self._hide_warning()
 
-    def _show_warning(self, text="Выберите пользователя из списка!"):
-        w = self.ids.user_warning
-        w.text = text
-        w.height = dp(28)
+    def _show_warning(self, txt="Выберите пользователя из списка!"):
+        self.ids.user_warning.text = txt
+        self.ids.user_warning.height = dp(28)
 
     def _hide_warning(self):
-        w = self.ids.user_warning
-        w.text = ''
-        w.height = dp(0)
+        self.ids.user_warning.text = ''
+        self.ids.user_warning.height = dp(0)
 
+    # ── Выбор файла ──────────────────────────────────────────────────
     def choose_file(self):
-        # FIX: Android Document UI — корректно читаем состояние переключателя
         if platform == 'android' and self.ids.native_switch.active:
-            self.open_native_android_picker()
+            self._open_document_ui()
         else:
             self._open_kivy_picker()
 
@@ -1222,207 +1181,284 @@ class FileScreen(Screen):
         chooser = FileChooserListView(path=storage_path)
         box = BoxLayout(orientation='vertical')
         box.add_widget(chooser)
-        btn = Button(
-            text="Выбрать", size_hint_y=None, height=dp(50),
-            background_normal='', background_color=App.get_running_app().theme['accent'],
-        )
+        t   = App.get_running_app().theme
+        btn = Button(text="Выбрать", size_hint_y=None, height=dp(50),
+                     background_normal='', background_color=t['accent'])
         box.add_widget(btn)
-        popup = Popup(title="Выбор файла", content=box, size_hint=(0.95, 0.92))
+        mv = ModalView(size_hint=(0.97, 0.93))
+        mv.add_widget(box)
 
-        def on_select(instance):
+        def on_sel(_):
             if chooser.selection:
-                self.selected_file = chooser.selection[0]
-                self.ids.file_label.text = os.path.basename(self.selected_file)
-                self.ids.file_label.color = App.get_running_app().theme['input_fg']
-                App.get_running_app().log_action(f"Выбран файл: {os.path.basename(self.selected_file)}")
-            popup.dismiss()
-        btn.bind(on_release=on_select)
-        popup.open()
+                self._set_file(chooser.selection[0])
+            mv.dismiss()
+        btn.bind(on_release=on_sel)
+        mv.open()
 
-    def open_native_android_picker(self):
-        # FIX: обработка результата через on_activity_result
+    def _set_file(self, path):
+        """Запомнить путь и показать имя файла."""
+        self.selected_file = path
+        self._pending_uri  = None
+        self.ids.file_label.text  = os.path.basename(path)
+        self.ids.file_label.color = App.get_running_app().theme['input_fg']
+        App.get_running_app().log_action(f"Выбран файл: {os.path.basename(path)}")
+
+    def _open_document_ui(self):
+        """Запускает системный Android-пикер; результат придёт в _on_android_result."""
         try:
-            from jnius import autoclass
-            Intent = autoclass('android.content.Intent')
-            PythonActivity = autoclass('org.kivy.android.PythonActivity')
-
+            Intent        = _autoclass('android.content.Intent')
+            PythonActivity = _autoclass('org.kivy.android.PythonActivity')
             intent = Intent(Intent.ACTION_OPEN_DOCUMENT)
             intent.addCategory(Intent.CATEGORY_OPENABLE)
             intent.setType("*/*")
-
-            # Регистрируем обработчик результата
-            try:
-                from android import activity as android_activity
-                android_activity.bind(on_activity_result=self._on_android_result)
-            except Exception:
-                pass
-
-            PythonActivity.mActivity.startActivityForResult(intent, 1234)
+            # Снимаем старый обработчик (если был) и ставим новый
+            try: _android_activity.unbind(on_activity_result=self._on_android_result)
+            except: pass
+            _android_activity.bind(on_activity_result=self._on_android_result)
+            PythonActivity.mActivity.startActivityForResult(intent, 42)
             App.get_running_app().log_action("Открыт Android Document UI")
         except Exception as e:
             show_msg("Ошибка Document UI", str(e))
-            # Откат на Kivy-пикер
             self._open_kivy_picker()
 
-    def _on_android_result(self, requestCode, resultCode, intent):
-        if requestCode != 1234 or intent is None:
+    def _on_android_result(self, requestCode, resultCode, data):
+        """Обработчик результата Android-пикера.
+
+        Проблема: Uri — Java-объект, его нельзя просто str()-ить.
+        Решение:  читаем содержимое через ContentResolver.openInputStream(),
+                  копируем во временный файл в кэше приложения и работаем с ним.
+        """
+        if requestCode != 42:
             return
         try:
-            from jnius import autoclass
-            uri = intent.getData()
-            # Конвертируем URI в путь через ContentResolver
-            context = autoclass('org.kivy.android.PythonActivity').mActivity
-            cursor = context.getContentResolver().query(uri, None, None, None, None)
-            if cursor and cursor.moveToFirst():
-                idx = cursor.getColumnIndex("_data")
-                if idx >= 0:
-                    path = cursor.getString(idx)
-                    if path:
-                        self.selected_file = path
-                        self.ids.file_label.text = os.path.basename(path)
-                        self.ids.file_label.color = App.get_running_app().theme['input_fg']
-                        return
-            # Если путь не получен — показываем URI
-            self.ids.file_label.text = str(uri)
-            show_msg("Файл выбран", "Файл выбран через Document UI.\nМожно продолжить.")
-        except Exception as e:
-            show_msg("Ошибка", f"Не удалось прочитать файл: {e}")
+            _android_activity.unbind(on_activity_result=self._on_android_result)
+        except: pass
 
+        if resultCode != -1 or data is None:   # RESULT_OK == -1 в Java
+            show_msg("Файл не выбран", "Выбор файла отменён.")
+            return
+
+        try:
+            uri = data.getData()
+            if uri is None:
+                show_msg("Ошибка", "URI файла не получен.")
+                return
+
+            # Пробуем получить отображаемое имя через DocumentsContract
+            display_name = self._get_display_name(uri)
+
+            # Копируем содержимое файла во временный кэш-файл
+            tmp_path = self._copy_uri_to_cache(uri, display_name)
+            if tmp_path:
+                Clock.schedule_once(lambda dt: self._set_file(tmp_path), 0)
+            else:
+                show_msg("Ошибка", "Не удалось прочитать файл через Document UI.")
+        except Exception as e:
+            show_msg("Ошибка Document UI", str(e))
+
+    def _get_display_name(self, uri):
+        """Безопасно извлекает имя файла из Uri через ContentResolver."""
+        try:
+            context   = _autoclass('org.kivy.android.PythonActivity').mActivity
+            cursor    = context.getContentResolver().query(uri, None, None, None, None)
+            if cursor and cursor.moveToFirst():
+                # Пробуем стандартную колонку OpenableColumns.DISPLAY_NAME
+                idx = cursor.getColumnIndex("_display_name")
+                if idx < 0:
+                    idx = cursor.getColumnIndex("display_name")
+                if idx >= 0:
+                    name = cursor.getString(idx)
+                    cursor.close()
+                    if name:
+                        return name
+            if cursor:
+                cursor.close()
+        except Exception:
+            pass
+        # Fallback: берём последний сегмент URI
+        try:
+            uri_str = uri.toString()
+            return uri_str.split('/')[-1].split('%2F')[-1] or "document_file"
+        except:
+            return "document_file"
+
+    def _copy_uri_to_cache(self, uri, filename):
+        """Читает InputStream из Uri, пишет в файл кэша приложения.
+           Возвращает путь к временному файлу или None при ошибке.
+        """
+        try:
+            context  = _autoclass('org.kivy.android.PythonActivity').mActivity
+            resolver = context.getContentResolver()
+            stream   = resolver.openInputStream(uri)
+            if stream is None:
+                return None
+
+            # Читаем байты через Java
+            buf   = _autoclass('java.io.BufferedInputStream')(stream)
+            chunk = 65536
+            data  = bytearray()
+            arr   = _autoclass('java.lang.reflect.Array')
+            byte_arr = _autoclass('[B')(chunk)  # byte[chunk]
+
+            # Используем Python-совместимый способ чтения
+            ByteArrayOutputStream = _autoclass('java.io.ByteArrayOutputStream')
+            baos = ByteArrayOutputStream()
+            read = buf.read()
+            while read != -1:
+                baos.write(read)
+                read = buf.read()
+            buf.close()
+            java_bytes = baos.toByteArray()
+            # Конвертируем Java byte[] → Python bytes
+            py_bytes = bytes(java_bytes)
+
+            # Сохраняем во временный файл
+            cache_dir = context.getCacheDir().getAbsolutePath()
+            tmp_path  = os.path.join(cache_dir, filename)
+            with open(tmp_path, 'wb') as f:
+                f.write(py_bytes)
+            return tmp_path
+        except Exception as e:
+            # Если побайтовое чтение слишком медленное — используем альтернативу
+            return self._copy_uri_to_cache_fast(uri, filename)
+
+    def _copy_uri_to_cache_fast(self, uri, filename):
+        """Быстрая альтернатива через Files.copy (Android API 26+) или ParcelFileDescriptor."""
+        try:
+            context  = _autoclass('org.kivy.android.PythonActivity').mActivity
+            resolver = context.getContentResolver()
+            pfd      = resolver.openFileDescriptor(uri, "r")
+            if pfd is None:
+                return None
+            fd = pfd.getFd()  # int — числовой файловый дескриптор Linux
+
+            cache_dir = context.getCacheDir().getAbsolutePath()
+            tmp_path  = os.path.join(cache_dir, filename)
+
+            # Читаем через Python os.read() по fd — быстро и просто
+            CHUNK = 1 << 20  # 1 MB
+            with open(tmp_path, 'wb') as out:
+                while True:
+                    chunk = os.read(fd, CHUNK)
+                    if not chunk:
+                        break
+                    out.write(chunk)
+            pfd.close()
+            return tmp_path
+        except Exception as e:
+            show_msg("Ошибка чтения файла", str(e))
+            return None
+
+    # ── Шифрование / расшифровка файлов ──────────────────────────────
     def encrypt_file(self):
         username = self.ids.user_spinner.text
         if username == 'Выберите пользователя' or not username:
-            self._show_warning("Выберите пользователя из списка!")
-            return
+            self._show_warning(); return
         self._hide_warning()
         if not self.selected_file:
-            show_msg("Ошибка", "Сначала выберите файл!")
-            return
+            show_msg("Ошибка", "Сначала выберите файл!"); return
         user = next((u for u in App.get_running_app().backend.load_users()
                      if u['username'] == username), None)
         if not user or not user.get('public_key_path'):
-            show_msg("Ошибка", "Нет публичного ключа!")
-            return
+            show_msg("Ошибка", "Нет публичного ключа!"); return
         try:
             out = App.get_running_app().backend.encrypt_file_gcm(user['public_key_path'], self.selected_file)
-            App.get_running_app().log_action(f"Зашифрован файл: {os.path.basename(self.selected_file)}")
-            show_msg("Успех", f"Файл зашифрован!\nСохранён как:\n{out}")
+            App.get_running_app().log_action(f"Зашифрован: {os.path.basename(self.selected_file)}")
+            show_msg("Успех", f"Зашифрован!\n{os.path.basename(out)}")
         except Exception as e:
-            show_msg("Ошибка", str(e))
+            show_msg("Ошибка шифрования", str(e))
 
     def decrypt_file(self):
         username = self.ids.user_spinner.text
         if username == 'Выберите пользователя' or not username:
-            self._show_warning("Выберите пользователя из списка!")
-            return
+            self._show_warning(); return
         self._hide_warning()
         if not self.selected_file:
-            show_msg("Ошибка", "Сначала выберите файл!")
-            return
+            show_msg("Ошибка", "Сначала выберите файл!"); return
         user = next((u for u in App.get_running_app().backend.load_users()
                      if u['username'] == username), None)
         if not user or not user.get('private_key_path'):
-            show_msg("Ошибка", "Нет приватного ключа!")
-            return
+            show_msg("Ошибка", "Нет приватного ключа!"); return
         try:
             out = App.get_running_app().backend.decrypt_file_gcm(user['private_key_path'], self.selected_file)
-            App.get_running_app().log_action(f"Расшифрован файл: {os.path.basename(self.selected_file)}")
-            show_msg("Успех", f"Файл расшифрован!\nСохранён как:\n{out}")
+            App.get_running_app().log_action(f"Расшифрован: {os.path.basename(self.selected_file)}")
+            show_msg("Успех", f"Расшифрован!\n{os.path.basename(out)}")
         except Exception as e:
-            show_msg("Ошибка", str(e))
+            show_msg("Ошибка расшифровки", str(e))
 
 
 class GroupScreen(Screen):
     def on_enter(self):
-        backend = App.get_running_app().backend
-        users = backend.load_users()
+        from kivy.uix.checkbox import CheckBox
         layout = self.ids.group_users_layout
         layout.clear_widgets()
-        from kivy.uix.checkbox import CheckBox
+        t = App.get_running_app().theme
         self.checkboxes = {}
-        theme = App.get_running_app().theme
-        for u in users:
+        for u in App.get_running_app().backend.load_users():
             if u.get('public_key_path'):
                 row = BoxLayout(size_hint_y=None, height=dp(44), padding=[dp(6), 0, dp(6), 0])
-                chk = CheckBox(size_hint_x=None, width=dp(40), color=theme['accent'])
-                lbl = Label(text=u['username'], color=theme['input_fg'], halign='left',
+                chk = CheckBox(size_hint_x=None, width=dp(40), color=t['accent'])
+                lbl = Label(text=u['username'], color=t['input_fg'], halign='left',
                             text_size=(Window.width - dp(80), None))
-                row.add_widget(chk)
-                row.add_widget(lbl)
+                row.add_widget(chk); row.add_widget(lbl)
                 layout.add_widget(row)
                 self.checkboxes[u['username']] = chk
 
     def encrypt_group(self):
         text = self.ids.group_input.text.strip()
-        if not text:
-            show_msg("Ошибка", "Введите текст!")
-            return
-        selected = {name: chk for name, chk in self.checkboxes.items() if chk.active}
-        if not selected:
-            show_msg("Ошибка", "Выберите хотя бы одного получателя!")
-            return
-
+        if not text: show_msg("Ошибка", "Введите текст!"); return
+        selected = {n: c for n, c in self.checkboxes.items() if c.active}
+        if not selected: show_msg("Ошибка", "Выберите хотя бы одного получателя!"); return
         backend = App.get_running_app().backend
-        users = backend.load_users()
-        pub_dict = {}
-        for name in selected:
-            u = next((u for u in users if u['username'] == name), None)
-            if u and u.get('public_key_path'):
-                pub_dict[name] = u['public_key_path']
-
+        users   = backend.load_users()
+        pub_dict = {n: u['public_key_path'] for n in selected
+                    for u in users if u['username'] == n and u.get('public_key_path')}
         try:
             res = backend.encrypt_group(pub_dict, text)
             self.ids.group_input.text = res
             Clipboard.copy(res)
             show_msg("Успех", "Групповое сообщение зашифровано и скопировано!")
-            App.get_running_app().log_action("Выполнено групповое шифрование")
+            App.get_running_app().log_action("Групповое шифрование")
         except Exception as e:
             show_msg("Ошибка", str(e))
 
     def decrypt_group(self):
         text = self.ids.group_input.text.strip()
-        if not text:
-            show_msg("Ошибка", "Вставьте JSON для расшифровки!")
-            return
+        if not text: show_msg("Ошибка", "Вставьте JSON!"); return
         try:
             res = App.get_running_app().backend.decrypt_group(text)
             self.ids.group_input.text = res
-            show_msg("Успех", "Сообщение расшифровано")
-            App.get_running_app().log_action("Выполнена групповая расшифровка")
+            show_msg("Успех", "Сообщение расшифровано!")
+            App.get_running_app().log_action("Групповая расшифровка")
         except Exception as e:
-            show_msg("Ошибка расшифровки", str(e))
+            show_msg("Ошибка", str(e))
 
 
 # ==================== НАСТРОЙКИ ====================
 
 COLOR_LABELS = {
-    "bg_color": "Фон приложения",
-    "btn_bg": "Фон кнопок",
-    "btn_border": "Рамка кнопок",
-    "btn_text": "Текст кнопок",
-    "accent": "Акцентный цвет",
-    "input_bg": "Фон поля ввода",
-    "input_fg": "Текст в полях",
-    "title_color": "Цвет заголовков",
+    "bg_color":    "Фон приложения",
+    "btn_bg":      "Фон кнопок",
+    "btn_border":  "Рамка кнопок",
+    "btn_text":    "Текст кнопок",
+    "accent":      "Акцентный цвет",
+    "input_bg":    "Фон поля ввода",
+    "input_fg":    "Текст в полях",
+    "title_color": "Заголовки",
     "label_muted": "Второстепенный текст",
-    "danger_bg": "Цвет опасных кнопок",
-    "success_bg": "Цвет успеха",
-    "log_bg": "Фон логов",
+    "danger_bg":   "Цвет опасных кнопок",
+    "success_bg":  "Цвет успеха",
+    "log_bg":      "Фон логов",
 }
 
-
 def rgba_to_hex(rgba):
-    r, g, b = int(rgba[0]*255), int(rgba[1]*255), int(rgba[2]*255)
-    return f"#{r:02X}{g:02X}{b:02X}"
+    return "#{:02X}{:02X}{:02X}".format(int(rgba[0]*255), int(rgba[1]*255), int(rgba[2]*255))
 
-
-def hex_to_rgba(hex_str, alpha=1.0):
-    hex_str = hex_str.strip().lstrip('#')
-    if len(hex_str) == 6:
-        r = int(hex_str[0:2], 16) / 255
-        g = int(hex_str[2:4], 16) / 255
-        b = int(hex_str[4:6], 16) / 255
-        return [r, g, b, alpha]
-    return [1, 1, 1, 1]
+def hex_to_rgba(s, alpha=1.0):
+    s = s.strip().lstrip('#')
+    if len(s) == 6:
+        return [int(s[0:2],16)/255, int(s[2:4],16)/255, int(s[4:6],16)/255, alpha]
+    return [1,1,1,1]
 
 
 class SettingsScreen(Screen):
@@ -1430,79 +1466,66 @@ class SettingsScreen(Screen):
 
     def on_enter(self):
         self._color_inputs = {}
-        self._build_color_rows()
-        # Установить текущий пресет в спиннер
         self.ids.preset_spinner.values = list(THEME_PRESETS.keys())
+        self._build_color_rows()
 
     def _build_color_rows(self):
         box = self.ids.color_rows
         box.clear_widgets()
         self._color_inputs = {}
-        theme = App.get_running_app().theme
+        t = App.get_running_app().theme
 
         for key, label in COLOR_LABELS.items():
-            row = BoxLayout(size_hint_y=None, height=dp(48), spacing=dp(8), padding=[dp(4), dp(4), dp(4), dp(4)])
+            row  = BoxLayout(size_hint_y=None, height=dp(50), spacing=dp(8),
+                             padding=[dp(4), dp(5), dp(4), dp(5)])
+            rgba = t.get(key, [1,1,1,1])
 
             # Цветной квадрат
-            from kivy.uix.widget import Widget
-            color_preview = Widget(size_hint_x=None, width=dp(32))
-            rgba = theme.get(key, [1, 1, 1, 1])
-            with color_preview.canvas:
-                from kivy.graphics import Color as GColor, RoundedRectangle as GRR
-                GColor(*rgba)
-                GRR(pos=color_preview.pos, size=color_preview.size, radius=[4])
+            preview = Widget(size_hint_x=None, width=dp(34))
+            with preview.canvas:
+                Color(*rgba)
+                rr = RoundedRectangle(pos=(preview.x, preview.y),
+                                      size=(preview.width, preview.height), radius=[dp(5)])
 
-            name_label = Label(
-                text=label,
-                color=theme['label_muted'],
-                font_size='13sp',
-                size_hint_x=0.55,
-                halign='left',
-                text_size=(Window.width * 0.45, None),
-            )
+            def _bind_preview(prev_widget, rr_inst):
+                def upd(inst, val):
+                    rr_inst.pos  = inst.pos
+                    rr_inst.size = inst.size
+                prev_widget.bind(pos=upd, size=upd)
+            _bind_preview(preview, rr)
 
-            hex_val = rgba_to_hex(rgba)
-            inp = TextInput(
-                text=hex_val,
-                size_hint_x=0.35,
-                size_hint_y=None,
-                height=dp(38),
-                background_color=theme['input_bg'],
-                foreground_color=theme['input_fg'],
-                font_size='13sp',
-                multiline=False,
-            )
+            name_lbl = Label(text=label, color=t['label_muted'], font_size='13sp',
+                             size_hint_x=0.55, halign='left',
+                             text_size=(Window.width * 0.45, None))
+
+            inp = TextInput(text=rgba_to_hex(rgba), size_hint_x=0.35,
+                            size_hint_y=None, height=dp(40),
+                            background_color=t['input_bg'], foreground_color=t['input_fg'],
+                            font_size='13sp', multiline=False,
+                            use_bubble=False, use_handles=False)
             self._color_inputs[key] = inp
 
-            # Живое обновление превью при вводе
-            preview_ref = [color_preview, rgba]
-            def make_updater(widget, key_name, preview_widget):
-                def on_text(instance, value):
+            def _make_live(pv, rr_ref, k):
+                def on_text(inst, val):
                     try:
-                        new_rgba = hex_to_rgba(value, alpha=App.get_running_app().theme.get(key_name, [1,1,1,1])[3])
-                        preview_widget.canvas.clear()
-                        with preview_widget.canvas:
-                            from kivy.graphics import Color as GColor, RoundedRectangle as GRR
-                            GColor(*new_rgba)
-                            GRR(pos=preview_widget.pos, size=preview_widget.size, radius=[4])
-                    except Exception:
-                        pass
+                        c = hex_to_rgba(val, App.get_running_app().theme.get(k,[1,1,1,1])[3])
+                        pv.canvas.clear()
+                        with pv.canvas:
+                            Color(*c)
+                            RoundedRectangle(pos=pv.pos, size=pv.size, radius=[dp(5)])
+                    except: pass
                 return on_text
-            inp.bind(text=make_updater(inp, key, color_preview))
+            inp.bind(text=_make_live(preview, rr, key))
 
-            row.add_widget(color_preview)
-            row.add_widget(name_label)
-            row.add_widget(inp)
+            row.add_widget(preview); row.add_widget(name_lbl); row.add_widget(inp)
             box.add_widget(row)
 
-    def apply_preset(self, preset_name):
-        preset = THEME_PRESETS.get(preset_name)
-        if not preset:
-            return
+    def apply_preset(self, name):
+        preset = THEME_PRESETS.get(name)
+        if not preset: return
         app = App.get_running_app()
         app.theme = dict(preset)
-        Window.clearcolor = tuple(app.theme['bg_color'])
-        app.save_theme()
+        app._apply_theme()
         self._build_color_rows()
 
     def save_settings(self):
@@ -1510,83 +1533,90 @@ class SettingsScreen(Screen):
         new_theme = dict(app.theme)
         for key, inp in self._color_inputs.items():
             try:
-                alpha = app.theme.get(key, [1, 1, 1, 1])[3]
-                new_theme[key] = hex_to_rgba(inp.text, alpha=alpha)
-            except Exception:
-                pass
+                alpha = app.theme.get(key, [1,1,1,1])[3]
+                new_theme[key] = hex_to_rgba(inp.text, alpha)
+            except: pass
         app.theme = new_theme
-        Window.clearcolor = tuple(app.theme['bg_color'])
-        app.save_theme()
+        app._apply_theme()   # сохраняет + рассылает событие виджетам
         show_msg("Настройки", "Тема сохранена!")
 
 
 # ==================== APP ====================
 
 class SCMessApp(App):
-    theme = DEFAULT_THEME.copy()
+    # DictProperty: KV-биндинги срабатывают при замене значения по ключу
+    theme = DictProperty(DEFAULT_THEME.copy())
+
+    def _apply_theme(self):
+        """Применить тему немедленно без перезапуска.
+        Заменяем весь dict целиком — это гарантированно триггерит все KV-биндинги."""
+        Window.clearcolor = tuple(self.theme.get('bg_color', [0.05, 0.05, 0.08, 1]))
+        self.save_theme()
+        # Копируем текущие значения и переприсваиваем — DictProperty пошлёт событие
+        snapshot = dict(self.theme)
+        self.theme = snapshot
 
     def build(self):
         if platform == 'android':
             try:
                 from android.permissions import request_permissions, Permission
-                request_permissions([Permission.READ_EXTERNAL_STORAGE, Permission.WRITE_EXTERNAL_STORAGE])
+                request_permissions([
+                    Permission.READ_EXTERNAL_STORAGE,
+                    Permission.WRITE_EXTERNAL_STORAGE,
+                    Permission.READ_MEDIA_IMAGES,
+                    Permission.READ_MEDIA_VIDEO,
+                    Permission.READ_MEDIA_AUDIO,
+                ])
             except Exception:
                 pass
 
-        self.dev_mode = False
+        self.dev_mode   = False
         self.action_log = []
-
-        self.backend = CryptoBackend(self.user_data_dir)
+        self.backend    = CryptoBackend(self.user_data_dir)
 
         global SETTINGS_FILE
         SETTINGS_FILE = os.path.join(self.user_data_dir, "settings.json")
-        self.load_theme()
+        self._load_theme_from_disk()
 
         Builder.load_string(KV)
 
-        sm = ScreenManager()
+        sm = ScreenManager(transition=NoTransition())
         sm.add_widget(MenuScreen(name='menu'))
         sm.add_widget(KeysScreen(name='keys'))
         sm.add_widget(TextScreen(name='text'))
         sm.add_widget(FileScreen(name='files'))
         sm.add_widget(GroupScreen(name='group'))
         sm.add_widget(SettingsScreen(name='settings'))
-
         return sm
 
-    def load_theme(self):
+    def _load_theme_from_disk(self):
         try:
             if SETTINGS_FILE and os.path.exists(SETTINGS_FILE):
-                with open(SETTINGS_FILE, 'r') as f:
+                with open(SETTINGS_FILE) as f:
                     data = json.load(f)
                 if 'theme' in data:
-                    loaded = data['theme']
-                    # Merge with default to avoid missing keys
                     merged = dict(DEFAULT_THEME)
-                    merged.update(loaded)
+                    merged.update(data['theme'])
                     self.theme = merged
-                    Window.clearcolor = tuple(self.theme['bg_color'])
         except Exception:
             self.theme = dict(DEFAULT_THEME)
+        Window.clearcolor = tuple(self.theme.get('bg_color', [0.05, 0.05, 0.08, 1]))
 
     def save_theme(self):
         try:
             data = {}
             if SETTINGS_FILE and os.path.exists(SETTINGS_FILE):
                 try:
-                    with open(SETTINGS_FILE, 'r') as f:
-                        data = json.load(f)
-                except Exception:
-                    data = {}
+                    with open(SETTINGS_FILE) as f: data = json.load(f)
+                except: pass
             data['theme'] = self.theme
             with open(SETTINGS_FILE, 'w') as f:
                 json.dump(data, f, indent=2)
-        except Exception as e:
+        except Exception:
             pass
 
     def log_action(self, message):
-        timestamp = datetime.now().strftime("%H:%M:%S")
-        entry = f"[{timestamp}] {message}"
+        entry = f"[{datetime.now().strftime('%H:%M:%S')}] {message}"
         self.action_log.append(entry)
         if len(self.action_log) > 200:
             self.action_log.pop(0)
