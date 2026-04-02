@@ -318,6 +318,13 @@ KV = '''
             StyledButton:
                 text: 'Расшифровать'
                 on_release: root.decrypt_action()
+        BoxLayout:
+            size_hint_y: None
+            height: dp(44)
+            spacing: dp(8)
+            StyledButton:
+                text: 'Вставить'
+                on_release: root.paste_from_clipboard()
             StyledButton:
                 text: 'Очистить'
                 on_release: root.clear_field()
@@ -447,7 +454,7 @@ KV = '''
         SectionLabel:
             text: 'Отметьте получателей:'
         ScrollView:
-            size_hint_y: 0.28
+            size_hint_y: 0.25
             canvas.before:
                 Color:
                     rgba: app.theme['input_bg']
@@ -462,9 +469,32 @@ KV = '''
                 height: self.minimum_height
                 padding: [dp(6), dp(4), dp(6), dp(4)]
                 spacing: dp(4)
+        # Авто-копирование
+        BoxLayout:
+            size_hint_y: None
+            height: dp(44)
+            spacing: dp(10)
+            padding: [dp(10), dp(4), dp(4), dp(4)]
+            canvas.before:
+                Color:
+                    rgba: app.theme['btn_bg']
+                RoundedRectangle:
+                    pos: self.x, self.y
+                    size: self.width, self.height
+                    radius: [7]
+            Label:
+                text: 'Авто-копировать в буфер'
+                font_size: '14sp'
+                color: app.theme['btn_text']
+                halign: 'left'
+                text_size: self.width, None
+            ToggleBtn:
+                id: group_auto_copy
+                active: True
         StyledInput:
             id: group_input
             hint_text: 'Текст для шифровки ИЛИ полученный JSON для расшифровки'
+        # Кнопки действий
         BoxLayout:
             size_hint_y: None
             height: dp(48)
@@ -475,6 +505,17 @@ KV = '''
             StyledButton:
                 text: 'Расшифровать'
                 on_release: root.decrypt_group()
+        # Кнопки утилит
+        BoxLayout:
+            size_hint_y: None
+            height: dp(44)
+            spacing: dp(8)
+            StyledButton:
+                text: 'Вставить'
+                on_release: root.paste_from_clipboard()
+            StyledButton:
+                text: 'Очистить'
+                on_release: root.clear_field()
         StyledButton:
             text: 'Назад'
             size_hint_y: None
@@ -843,15 +884,24 @@ class CryptoBackend:
         with open(out, 'wb') as f: f.write(data)
         return out
 
-    def encrypt_group(self, pub_dict, text):
+    def encrypt_group(self, pub_paths_list, text):
+        """Шифруем для списка публичных ключей.
+        В JSON вместо имён хранятся SHA-256 fingerprint'ы публичных ключей —
+        имена получателей нигде не фигурируют."""
         aes_key = os.urandom(32); iv = os.urandom(12)
         enc = Cipher(algorithms.AES(aes_key), modes.GCM(iv), default_backend()).encryptor()
         ct = enc.update(text.encode()) + enc.finalize()
         keys = {}
-        for name, path in pub_dict.items():
+        for path in pub_paths_list:
             with open(path, 'rb') as f:
-                pub = serialization.load_pem_public_key(f.read(), default_backend())
-            keys[name] = base64.b64encode(pub.encrypt(aes_key, self._oaep())).decode()
+                pub_data = f.read()
+            pub = serialization.load_pem_public_key(pub_data, default_backend())
+            # Fingerprint = SHA-256 от DER-представления ключа (первые 16 байт hex)
+            der = pub.public_bytes(serialization.Encoding.DER,
+                                   serialization.PublicFormat.SubjectPublicKeyInfo)
+            import hashlib
+            fp = hashlib.sha256(der).hexdigest()[:32]
+            keys[fp] = base64.b64encode(pub.encrypt(aes_key, self._oaep())).decode()
         return json.dumps({"type": "group_message_gcm",
                            "iv": base64.b64encode(iv).decode(),
                            "tag": base64.b64encode(enc.tag).decode(),
@@ -859,18 +909,37 @@ class CryptoBackend:
                            "keys": keys}, ensure_ascii=False)
 
     def decrypt_group(self, payload_str):
+        """Расшифровка: ищем совпадение fingerprint'а нашего публичного ключа.
+        Если ни один не совпал — сообщение зашифровано не для нас."""
+        import hashlib
         p = json.loads(payload_str)
+        stored_keys = p.get("keys", {})
         for user in self.load_users():
-            if user['username'] in p.get("keys", {}) and user.get("private_key_path"):
-                enc_key = base64.b64decode(p["keys"][user['username']])
-                iv  = base64.b64decode(p['iv']);  tag = base64.b64decode(p['tag'])
-                ct  = base64.b64decode(p['ciphertext'])
-                with open(user['private_key_path'], 'rb') as f:
-                    priv = serialization.load_pem_private_key(f.read(), None, default_backend())
-                aes_key = priv.decrypt(enc_key, self._oaep())
-                dec = Cipher(algorithms.AES(aes_key), modes.GCM(iv, tag), default_backend()).decryptor()
-                return (dec.update(ct) + dec.finalize()).decode()
-        raise Exception("Нет подходящего приватного ключа для расшифровки.")
+            pub_path = user.get("private_key_path") and user.get("public_key_path")
+            if not pub_path or not user.get("private_key_path"):
+                continue
+            # Считаем fingerprint нашего публичного ключа
+            try:
+                with open(user['public_key_path'], 'rb') as f:
+                    pub_data = f.read()
+                pub = serialization.load_pem_public_key(pub_data, default_backend())
+                der = pub.public_bytes(serialization.Encoding.DER,
+                                       serialization.PublicFormat.SubjectPublicKeyInfo)
+                fp = hashlib.sha256(der).hexdigest()[:32]
+            except Exception:
+                continue
+            if fp not in stored_keys:
+                continue
+            # Нашли наш слот — расшифровываем
+            enc_key = base64.b64decode(stored_keys[fp])
+            iv  = base64.b64decode(p['iv']);  tag = base64.b64decode(p['tag'])
+            ct  = base64.b64decode(p['ciphertext'])
+            with open(user['private_key_path'], 'rb') as f:
+                priv = serialization.load_pem_private_key(f.read(), None, default_backend())
+            aes_key = priv.decrypt(enc_key, self._oaep())
+            dec = Cipher(algorithms.AES(aes_key), modes.GCM(iv, tag), default_backend()).decryptor()
+            return (dec.update(ct) + dec.finalize()).decode()
+        raise Exception("Это сообщение зашифровано не для вас.")
 
 
 # ==================== ЭКРАНЫ ====================
@@ -1101,6 +1170,11 @@ class TextScreen(Screen):
     def clear_field(self):
         self.ids.text_input.text = ''
         self._hide_warning()
+
+    def paste_from_clipboard(self):
+        txt = Clipboard.paste()
+        if txt:
+            self.ids.text_input.text = txt
 
     def encrypt_action(self):
         username = self.ids.user_spinner.text
@@ -1396,7 +1470,7 @@ class GroupScreen(Screen):
         self.checkboxes = {}
         for u in App.get_running_app().backend.load_users():
             if u.get('public_key_path'):
-                row = BoxLayout(size_hint_y=None, height=dp(44), padding=[dp(6), 0, dp(6), 0])
+                row = BoxLayout(size_hint_y=None, height=dp(46), padding=[dp(6), 0, dp(6), 0])
                 chk = CheckBox(size_hint_x=None, width=dp(40), color=t['accent'])
                 lbl = Label(text=u['username'], color=t['input_fg'], halign='left',
                             text_size=(Window.width - dp(80), None))
@@ -1407,17 +1481,26 @@ class GroupScreen(Screen):
     def encrypt_group(self):
         text = self.ids.group_input.text.strip()
         if not text: show_msg("Ошибка", "Введите текст!"); return
-        selected = {n: c for n, c in self.checkboxes.items() if c.active}
-        if not selected: show_msg("Ошибка", "Выберите хотя бы одного получателя!"); return
+        selected_names = [n for n, c in self.checkboxes.items() if c.active]
+        if not selected_names: show_msg("Ошибка", "Выберите хотя бы одного получателя!"); return
         backend = App.get_running_app().backend
         users   = backend.load_users()
-        pub_dict = {n: u['public_key_path'] for n in selected
-                    for u in users if u['username'] == n and u.get('public_key_path')}
+        # Собираем список путей к публичным ключам — имена в JSON не попадут
+        pub_paths = []
+        for name in selected_names:
+            u = next((u for u in users if u['username'] == name), None)
+            if u and u.get('public_key_path'):
+                pub_paths.append(u['public_key_path'])
+        if not pub_paths:
+            show_msg("Ошибка", "Нет публичных ключей у выбранных!"); return
         try:
-            res = backend.encrypt_group(pub_dict, text)
+            res = backend.encrypt_group(pub_paths, text)
             self.ids.group_input.text = res
-            Clipboard.copy(res)
-            show_msg("Успех", "Групповое сообщение зашифровано и скопировано!")
+            if self.ids.group_auto_copy.active:
+                Clipboard.copy(res)
+                show_msg("Успех", "Зашифровано и скопировано в буфер!")
+            else:
+                show_msg("Успех", "Сообщение зашифровано!")
             App.get_running_app().log_action("Групповое шифрование")
         except Exception as e:
             show_msg("Ошибка", str(e))
@@ -1432,6 +1515,14 @@ class GroupScreen(Screen):
             App.get_running_app().log_action("Групповая расшифровка")
         except Exception as e:
             show_msg("Ошибка", str(e))
+
+    def clear_field(self):
+        self.ids.group_input.text = ''
+
+    def paste_from_clipboard(self):
+        txt = Clipboard.paste()
+        if txt:
+            self.ids.group_input.text = txt
 
 
 # ==================== НАСТРОЙКИ ====================
