@@ -44,18 +44,18 @@ if platform == 'android':
 
 # ==================== ТЕМА ====================
 DEFAULT_THEME = {
-    "bg_color":     [0.05, 0.05, 0.08, 1],
-    "btn_bg":       [0.13, 0.13, 0.18, 1],
+    "bg_color":     [0.0,  0.0,  0.0,  1],   # #000000 — истинный чёрный AMOLED
+    "btn_bg":       [0.10, 0.10, 0.13, 1],
     "btn_border":   [0.25, 0.45, 0.85, 1],
     "btn_text":     [1,    1,    1,    1],
     "accent":       [0.25, 0.45, 0.85, 1],
-    "input_bg":     [0.08, 0.08, 0.12, 1],
+    "input_bg":     [0.07, 0.07, 0.10, 1],
     "input_fg":     [0.92, 0.92, 0.95, 1],
     "title_color":  [0.3,  0.6,  1,    1],
     "label_muted":  [0.5,  0.5,  0.6,  1],
     "danger_bg":    [0.7,  0.15, 0.15, 1],
     "success_bg":   [0.15, 0.55, 0.25, 1],
-    "log_bg":       [0.06, 0.06, 0.1,  1],
+    "log_bg":       [0.04, 0.04, 0.06, 1],
 }
 
 THEME_PRESETS = {
@@ -241,6 +241,11 @@ KV = '''
             size_hint_y: None
             height: dp(52)
             on_release: root.manager.current = 'group'
+        StyledButton:
+            text: 'Legacy шифрование'
+            size_hint_y: None
+            height: dp(52)
+            on_release: root.manager.current = 'legacy'
         Widget:
         StyledButton:
             text: 'Помощь'
@@ -267,6 +272,9 @@ KV = '''
                 font_size: '18sp'
                 bold: True
                 color: app.theme['title_color']
+        # ── Шифрование ──
+        SectionLabel:
+            text: 'Для шифрования (публичный ключ):'
         Spinner:
             id: user_spinner
             text: 'Выберите пользователя'
@@ -275,7 +283,7 @@ KV = '''
             color: app.theme['btn_text']
             font_size: '15sp'
             size_hint_y: None
-            height: dp(46)
+            height: dp(44)
         Label:
             id: user_warning
             text: ''
@@ -283,7 +291,19 @@ KV = '''
             font_size: '13sp'
             size_hint_y: None
             height: dp(0)
-        # Строка авто-копирования
+        # ── Расшифровка ──
+        SectionLabel:
+            text: 'Для расшифровки (приватный ключ):'
+        Spinner:
+            id: decrypt_spinner
+            text: 'Нет приватных ключей'
+            background_normal: ''
+            background_color: app.theme['input_bg']
+            color: app.theme['accent']
+            font_size: '15sp'
+            size_hint_y: None
+            height: dp(44)
+        # ── Авто-копирование ──
         BoxLayout:
             size_hint_y: None
             height: dp(44)
@@ -307,7 +327,7 @@ KV = '''
                 active: True
         StyledInput:
             id: text_input
-            hint_text: 'Введите текст для шифровки или вставьте JSON для расшифровки'
+            hint_text: 'Текст для шифровки / JSON для расшифровки'
         BoxLayout:
             size_hint_y: None
             height: dp(48)
@@ -636,6 +656,106 @@ KV = '''
             size_hint_y: None
             height: dp(44)
             on_release: root.manager.current = 'menu'
+
+<LegacyScreen>:
+    canvas.before:
+        Color:
+            rgba: app.theme['bg_color']
+        Rectangle:
+            pos: self.pos
+            size: self.size
+    BoxLayout:
+        orientation: 'vertical'
+        padding: [dp(14), dp(14), dp(14), dp(10)]
+        spacing: dp(8)
+        BoxLayout:
+            size_hint_y: None
+            height: dp(44)
+            Label:
+                text: 'Legacy шифрование (RSA-OAEP)'
+                font_size: '17sp'
+                bold: True
+                color: app.theme['title_color']
+        SectionLabel:
+            text: 'Для шифрования (публичный ключ):'
+        Spinner:
+            id: enc_spinner
+            text: 'Выберите пользователя'
+            background_normal: ''
+            background_color: app.theme['btn_bg']
+            color: app.theme['btn_text']
+            font_size: '15sp'
+            size_hint_y: None
+            height: dp(44)
+        SectionLabel:
+            text: 'Для расшифровки (приватный ключ):'
+        Spinner:
+            id: dec_spinner
+            text: 'Нет приватных ключей'
+            background_normal: ''
+            background_color: app.theme['input_bg']
+            color: app.theme['accent']
+            font_size: '15sp'
+            size_hint_y: None
+            height: dp(44)
+        Label:
+            id: info_label
+            text: 'Прямое RSA-OAEP шифрование без AES. Работает только с короткими текстами (< размер ключа).'
+            font_size: '12sp'
+            color: app.theme['label_muted']
+            size_hint_y: None
+            height: dp(36)
+            halign: 'left'
+            text_size: self.width, None
+        BoxLayout:
+            size_hint_y: None
+            height: dp(44)
+            spacing: dp(10)
+            padding: [dp(10), dp(4), dp(4), dp(4)]
+            canvas.before:
+                Color:
+                    rgba: app.theme['btn_bg']
+                RoundedRectangle:
+                    pos: self.x, self.y
+                    size: self.width, self.height
+                    radius: [7]
+            Label:
+                text: 'Авто-копировать в буфер'
+                font_size: '14sp'
+                color: app.theme['btn_text']
+                halign: 'left'
+                text_size: self.width, None
+            ToggleBtn:
+                id: legacy_auto_copy
+                active: True
+        StyledInput:
+            id: legacy_input
+            hint_text: 'Текст для шифровки / base64 для расшифровки'
+        BoxLayout:
+            size_hint_y: None
+            height: dp(48)
+            spacing: dp(8)
+            StyledButton:
+                text: 'Зашифровать'
+                on_release: root.encrypt_action()
+            StyledButton:
+                text: 'Расшифровать'
+                on_release: root.decrypt_action()
+        BoxLayout:
+            size_hint_y: None
+            height: dp(44)
+            spacing: dp(8)
+            StyledButton:
+                text: 'Вставить'
+                on_release: root.paste_clipboard()
+            StyledButton:
+                text: 'Очистить'
+                on_release: root.clear_field()
+        StyledButton:
+            text: 'Назад'
+            size_hint_y: None
+            height: dp(44)
+            on_release: root.manager.current = 'menu'
 '''
 
 # ==================== УВЕДОМЛЕНИЕ ====================
@@ -838,6 +958,62 @@ class CryptoBackend:
     def _oaep():
         return padding.OAEP(mgf=padding.MGF1(hashes.SHA256()), algorithm=hashes.SHA256(), label=None)
 
+    @staticmethod
+    def key_fingerprint(key_path, is_private=False):
+        """Возвращает короткий SHA-256 fingerprint ключа (8 групп по 2 символа).
+        Для приватного ключа вычисляется через его публичную часть."""
+        import hashlib
+        with open(key_path, 'rb') as f:
+            data = f.read()
+        if is_private:
+            k = serialization.load_pem_private_key(data, None, default_backend())
+            der = k.public_key().public_bytes(serialization.Encoding.DER,
+                                              serialization.PublicFormat.SubjectPublicKeyInfo)
+        else:
+            k = serialization.load_pem_public_key(data, default_backend())
+            der = k.public_bytes(serialization.Encoding.DER,
+                                 serialization.PublicFormat.SubjectPublicKeyInfo)
+        h = hashlib.sha256(der).hexdigest()[:16].upper()
+        return ':'.join(h[i:i+2] for i in range(0, 16, 2))  # A3:F7:C2:D1:E9:B0:4A:1C
+
+    @staticmethod
+    def detect_key_type(pem_text):
+        """Определяет тип ключа по содержимому PEM-строки."""
+        txt = pem_text.strip()
+        if 'PRIVATE' in txt:
+            return 'private'
+        if 'PUBLIC' in txt:
+            return 'public'
+        # Пробуем загрузить
+        try:
+            serialization.load_pem_private_key(txt.encode(), None, default_backend())
+            return 'private'
+        except Exception:
+            pass
+        try:
+            serialization.load_pem_public_key(txt.encode(), default_backend())
+            return 'public'
+        except Exception:
+            pass
+        return 'unknown'
+
+    # ── Legacy: прямое RSA-шифрование (без AES-обёртки) ──────────────
+    def encrypt_text_legacy(self, pub_key_path, text):
+        with open(pub_key_path, 'rb') as f:
+            pub = serialization.load_pem_public_key(f.read(), default_backend())
+        if not isinstance(pub, rsa.RSAPublicKey):
+            raise TypeError("Ключ не является публичным ключом RSA.")
+        encrypted = pub.encrypt(text.encode(), self._oaep())
+        return base64.b64encode(encrypted).decode('utf-8')
+
+    def decrypt_text_legacy(self, priv_key_path, encrypted_b64):
+        enc_bytes = base64.b64decode(encrypted_b64)
+        with open(priv_key_path, 'rb') as f:
+            priv = serialization.load_pem_private_key(f.read(), None, default_backend())
+        if not isinstance(priv, rsa.RSAPrivateKey):
+            raise TypeError("Ключ не является приватным ключом RSA.")
+        return priv.decrypt(enc_bytes, self._oaep()).decode('utf-8')
+
     def encrypt_text_gcm(self, pub_key_path, text):
         aes_key = os.urandom(32); iv = os.urandom(12)
         enc = Cipher(algorithms.AES(aes_key), modes.GCM(iv), default_backend()).encryptor()
@@ -1012,57 +1188,99 @@ class KeysScreen(Screen):
 
     def show_user_options(self, user):
         app = App.get_running_app(); t = app.theme
-        mv = ModalView(size_hint=(0.92, 0.88), background_color=t['input_bg'])
-        box = BoxLayout(orientation='vertical', padding=dp(12), spacing=dp(8))
-
-        pub_text = "Публичный ключ отсутствует"
-        if user.get('public_key_path') and os.path.exists(user['public_key_path']):
-            with open(user['public_key_path']) as f: pub_text = f.read()
+        mv = ModalView(size_hint=(0.92, 0.90), background_color=t['input_bg'])
+        sv = ScrollView()
+        box = BoxLayout(orientation='vertical', padding=dp(12), spacing=dp(8),
+                        size_hint_y=None)
+        box.bind(minimum_height=box.setter('height'))
 
         box.add_widget(Label(text=f"Пользователь: {user['username']}", size_hint_y=None,
                              height=dp(32), color=t['title_color'], bold=True))
-        pub_view = TextInput(text=pub_text, readonly=True, background_color=t['input_bg'],
-                             foreground_color=t['accent'], font_size='10sp', size_hint_y=0.45,
-                             use_bubble=False, use_handles=False)
-        box.add_widget(pub_view)
 
-        copy_pub = Button(text="Копировать публичный ключ", size_hint_y=None, height=dp(42),
-                          background_normal='', background_color=t['btn_bg'], color=t['btn_text'])
-        copy_pub.bind(on_release=lambda _: (Clipboard.copy(pub_text),
-                                             show_msg("Скопировано", "Публичный ключ в буфере")))
-        box.add_widget(copy_pub)
+        # ── Публичный ключ ──
+        if user.get('public_key_path') and os.path.exists(user['public_key_path']):
+            with open(user['public_key_path']) as f: pub_text = f.read()
+            try:
+                fp = app.backend.key_fingerprint(user['public_key_path'], is_private=False)
+            except Exception:
+                fp = "н/д"
+            box.add_widget(Label(text=f"Публичный ключ  |  FP: {fp}", size_hint_y=None,
+                                 height=dp(24), color=t['accent'], font_size='12sp',
+                                 halign='left', text_size=(Window.width * 0.85, None)))
+            pub_view = TextInput(text=pub_text, readonly=True, background_color=t['input_bg'],
+                                 foreground_color=t['accent'], font_size='10sp',
+                                 size_hint_y=None, height=dp(120),
+                                 use_bubble=False, use_handles=False)
+            box.add_widget(pub_view)
+            copy_pub = Button(text="Копировать публичный ключ", size_hint_y=None, height=dp(42),
+                              background_normal='', background_color=t['btn_bg'], color=t['btn_text'])
+            copy_pub.bind(on_release=lambda _: (Clipboard.copy(pub_text),
+                                                 show_msg("Скопировано", "Публичный ключ в буфере")))
+            box.add_widget(copy_pub)
+        else:
+            pub_text = ""
+            box.add_widget(Label(text="Публичный ключ отсутствует", size_hint_y=None, height=dp(28),
+                                 color=t['label_muted']))
 
-        if app.dev_mode and user.get('private_key_path') and os.path.exists(user['private_key_path']):
-            with open(user['private_key_path']) as f: priv_text = f.read()
-            box.add_widget(Label(text="ПРИВАТНЫЙ КЛЮЧ (dev mode)", size_hint_y=None,
-                                 height=dp(28), color=[1, 0.4, 0.4, 1]))
-            prv = TextInput(text=priv_text, readonly=True,
-                            background_color=[0.12, 0.03, 0.03, 1],
-                            foreground_color=[1, 0.4, 0.4, 1], font_size='10sp', size_hint_y=0.3,
-                            use_bubble=False, use_handles=False)
-            box.add_widget(prv)
-            cp = Button(text="Копировать приватный ключ (ОПАСНО!)", size_hint_y=None, height=dp(42),
-                        background_normal='', background_color=t['danger_bg'], color=[1,1,1,1])
-            cp.bind(on_release=lambda _: (Clipboard.copy(priv_text),
-                                           show_msg("Скопировано", "Приватный ключ в буфере")))
-            box.add_widget(cp)
+        # ── Приватный ключ ──
+        if user.get('private_key_path') and os.path.exists(user['private_key_path']):
+            try:
+                fp_priv = app.backend.key_fingerprint(user['private_key_path'], is_private=True)
+            except Exception:
+                fp_priv = "н/д"
+            box.add_widget(Label(text=f"Приватный ключ  |  FP: {fp_priv}", size_hint_y=None,
+                                 height=dp(24), color=[1, 0.5, 0.3, 1], font_size='12sp',
+                                 halign='left', text_size=(Window.width * 0.85, None)))
+            if app.dev_mode:
+                with open(user['private_key_path']) as f: priv_text = f.read()
+                prv = TextInput(text=priv_text, readonly=True,
+                                background_color=[0.08, 0.02, 0.02, 1],
+                                foreground_color=[1, 0.4, 0.4, 1], font_size='10sp',
+                                size_hint_y=None, height=dp(100),
+                                use_bubble=False, use_handles=False)
+                box.add_widget(prv)
+                cp = Button(text="Копировать приватный ключ (ОПАСНО!)", size_hint_y=None, height=dp(42),
+                            background_normal='', background_color=t['danger_bg'], color=[1,1,1,1])
+                cp.bind(on_release=lambda _: (Clipboard.copy(priv_text),
+                                               show_msg("Скопировано", "Приватный ключ в буфере")))
+                box.add_widget(cp)
+        else:
+            box.add_widget(Label(text="Приватный ключ отсутствует", size_hint_y=None, height=dp(28),
+                                 color=t['label_muted']))
 
-        del_btn = Button(text="Удалить пользователя", size_hint_y=None, height=dp(42),
+        # ── Кнопки ──
+        del_btn = Button(text="Удалить пользователя", size_hint_y=None, height=dp(44),
                          background_normal='', background_color=t['danger_bg'], color=[1,1,1,1])
-        close_btn = Button(text="Закрыть", size_hint_y=None, height=dp(42),
+        close_btn = Button(text="Закрыть", size_hint_y=None, height=dp(44),
                            background_normal='', background_color=t['btn_bg'], color=t['btn_text'])
 
         def do_delete(_):
-            app.backend.delete_user(user['username'])
-            mv.dismiss(); self.refresh_users()
-            app.log_action(f"Удалён пользователь {user['username']}")
-            show_msg("Удалено", f"Пользователь {user['username']} удалён")
+            # Подтверждение удаления
+            conf = ModalView(size_hint=(0.8, 0.32), background_color=t['input_bg'])
+            cb = BoxLayout(orientation='vertical', padding=dp(14), spacing=dp(10))
+            cb.add_widget(Label(text=f"Удалить «{user['username']}»?\nЭто удалит ключи с диска.",
+                                color=t['input_fg'], font_size='14sp', size_hint_y=0.6,
+                                halign='center', text_size=(Window.width * 0.7, None)))
+            row = BoxLayout(size_hint_y=0.4, spacing=dp(10))
+            yes = Button(text="Удалить", background_normal='', background_color=t['danger_bg'], color=[1,1,1,1])
+            no  = Button(text="Отмена", background_normal='', background_color=t['btn_bg'], color=t['btn_text'])
+            def confirm(_):
+                conf.dismiss(); mv.dismiss()
+                app.backend.delete_user(user['username'])
+                self.refresh_users()
+                app.log_action(f"Удалён пользователь {user['username']}")
+                show_msg("Удалено", f"Пользователь «{user['username']}» удалён")
+            yes.bind(on_release=confirm)
+            no.bind(on_release=conf.dismiss)
+            row.add_widget(yes); row.add_widget(no)
+            cb.add_widget(row)
+            conf.add_widget(cb); conf.open()
 
         del_btn.bind(on_release=do_delete)
         close_btn.bind(on_release=mv.dismiss)
-        box.add_widget(del_btn)
-        box.add_widget(close_btn)
-        mv.add_widget(box); mv.open()
+        box.add_widget(del_btn); box.add_widget(close_btn)
+        sv.add_widget(box)
+        mv.add_widget(sv); mv.open()
 
     def _styled_input(self, **kw):
         t = App.get_running_app().theme
@@ -1108,12 +1326,13 @@ class KeysScreen(Screen):
             Clock.schedule_once(lambda dt: [wait.dismiss(), show_msg("Ошибка", str(e))], 0)
 
     def add_key_dialog(self):
+        """Импорт ключа из файла — тип определяется автоматически."""
         path = '/storage/emulated/0/Download' if platform == 'android' else os.path.expanduser('~')
         chooser = FileChooserListView(path=path, filters=['*.pem'])
         box = BoxLayout(orientation='vertical')
         box.add_widget(chooser)
-        t   = App.get_running_app().theme
-        btn = Button(text="Выбрать как публичный", size_hint_y=None, height=dp(48),
+        t = App.get_running_app().theme
+        btn = Button(text="Выбрать файл ключа", size_hint_y=None, height=dp(48),
                      background_normal='', background_color=t['accent'])
         box.add_widget(btn)
         popup = ModalView(size_hint=(0.95, 0.92))
@@ -1122,41 +1341,93 @@ class KeysScreen(Screen):
         def on_sel(_):
             if not chooser.selection: return
             fpath = chooser.selection[0]
-            ni = self._styled_input(hint_text="Имя владельца", size_hint_y=0.6, multiline=False)
-            ok = self._styled_btn("Сохранить", size_hint_y=0.4)
+            try:
+                with open(fpath, 'rb') as f: raw = f.read()
+                kt = App.get_running_app().backend.detect_key_type(raw.decode('utf-8', errors='ignore'))
+            except Exception:
+                kt = 'unknown'
+            type_hint = "ПРИВАТНЫЙ" if kt == 'private' else ("ПУБЛИЧНЫЙ" if kt == 'public' else "НЕИЗВЕСТНЫЙ")
+            ni = self._styled_input(hint_text="Имя пользователя", size_hint_y=0.45, multiline=False)
+            type_lbl = Label(text=f"Тип: {type_hint}", size_hint_y=None, height=dp(28),
+                             color=[1, 0.5, 0.3, 1] if kt == 'private' else t['accent'])
+            ok = self._styled_btn("Сохранить", size_hint_y=0.35)
             nb = BoxLayout(orientation='vertical', padding=dp(10), spacing=dp(8))
-            nb.add_widget(ni); nb.add_widget(ok)
-            np_ = ModalView(size_hint=(0.78, 0.3))
+            nb.add_widget(ni); nb.add_widget(type_lbl); nb.add_widget(ok)
+            np_ = ModalView(size_hint=(0.78, 0.38))
             np_.add_widget(nb)
             def save(_):
                 if ni.text.strip():
-                    App.get_running_app().backend.add_friend_key(ni.text.strip(), fpath, False)
+                    App.get_running_app().backend.add_friend_key(ni.text.strip(), fpath, kt == 'private')
                     np_.dismiss(); popup.dismiss(); self.refresh_users()
-                    show_msg("Готово", "Ключ добавлен")
+                    show_msg("Готово", f"Ключ добавлен ({type_hint.lower()})")
             ok.bind(on_release=save); np_.open()
         btn.bind(on_release=on_sel); popup.open()
 
     def add_key_text_dialog(self):
         t = App.get_running_app().theme
-        mv = ModalView(size_hint=(0.92, 0.78), background_color=t['input_bg'])
+        mv = ModalView(size_hint=(0.92, 0.84), background_color=t['input_bg'])
         box = BoxLayout(orientation='vertical', spacing=dp(10), padding=dp(12))
-        n_inp = self._styled_input(hint_text="Имя пользователя", size_hint_y=None, height=dp(48), multiline=False)
+        box.add_widget(Label(text="Импорт ключа", bold=True, font_size='16sp',
+                             color=t['title_color'], size_hint_y=None, height=dp(30)))
+        box.add_widget(Label(
+            text="Тип определяется автоматически по слову PRIVATE / PUBLIC в PEM",
+            font_size='12sp', color=t['label_muted'], size_hint_y=None, height=dp(32),
+            halign='left', text_size=(Window.width * 0.8, None)))
+        n_inp = self._styled_input(hint_text="Имя пользователя (нового или существующего)",
+                                   size_hint_y=None, height=dp(48), multiline=False)
         k_inp = self._styled_input(hint_text="Вставьте PEM ключ сюда...")
-        btn   = self._styled_btn("Сохранить как публичный", size_hint_y=None, height=dp(52))
-        box.add_widget(n_inp); box.add_widget(k_inp); box.add_widget(btn)
+        id_lbl = Label(text="", font_size='12sp', color=t['accent'],
+                       size_hint_y=None, height=dp(22), halign='left',
+                       text_size=(Window.width * 0.8, None))
+
+        def on_key_text(inst, val):
+            kt = App.get_running_app().backend.detect_key_type(val)
+            if kt == 'private':
+                id_lbl.text = "Определён: ПРИВАТНЫЙ ключ"
+                id_lbl.color = [1, 0.5, 0.3, 1]
+            elif kt == 'public':
+                id_lbl.text = "Определён: ПУБЛИЧНЫЙ ключ"
+                id_lbl.color = t['accent']
+            else:
+                id_lbl.text = ""
+        k_inp.bind(text=on_key_text)
+
+        paste_btn = Button(text="Вставить из буфера", size_hint_y=None, height=dp(40),
+                           background_normal='', background_color=t['btn_bg'], color=t['btn_text'])
+        paste_btn.bind(on_release=lambda _: setattr(k_inp, 'text', Clipboard.paste() or ''))
+        btn = self._styled_btn("Сохранить", size_hint_y=None, height=dp(52))
+
+        box.add_widget(n_inp); box.add_widget(paste_btn)
+        box.add_widget(k_inp); box.add_widget(id_lbl); box.add_widget(btn)
         mv.add_widget(box)
+
         def save(_):
-            if n_inp.text.strip() and k_inp.text.strip():
-                App.get_running_app().backend.add_friend_key_from_text(n_inp.text.strip(), k_inp.text.strip(), False)
-                mv.dismiss(); self.refresh_users()
-                show_msg("Готово", "Ключ импортирован")
+            name = n_inp.text.strip(); key_text = k_inp.text.strip()
+            if not name or not key_text: show_msg("Ошибка", "Заполните имя и ключ!"); return
+            kt = App.get_running_app().backend.detect_key_type(key_text)
+            if kt == 'unknown': show_msg("Ошибка", "Не удалось определить тип ключа."); return
+            App.get_running_app().backend.add_friend_key_from_text(name, key_text, kt == 'private')
+            mv.dismiss(); self.refresh_users()
+            show_msg("Готово", f"Импортирован {'приватный' if kt=='private' else 'публичный'} ключ для «{name}»")
         btn.bind(on_release=save); mv.open()
 
 
 class TextScreen(Screen):
     def on_enter(self):
         users = App.get_running_app().backend.load_users()
-        self.ids.user_spinner.values = [u['username'] for u in users if u.get('public_key_path')]
+        # Спиннер шифрования — пользователи с публичным ключом
+        enc_users = [u['username'] for u in users if u.get('public_key_path')]
+        self.ids.user_spinner.values = enc_users
+
+        # Спиннер расшифровки — пользователи с приватным ключом
+        dec_users = [u['username'] for u in users if u.get('private_key_path')]
+        self.ids.decrypt_spinner.values = dec_users
+        # По умолчанию — первый сгенерированный (первый в списке с приватным ключом)
+        if dec_users and (not self.ids.decrypt_spinner.text or
+                          self.ids.decrypt_spinner.text not in dec_users):
+            self.ids.decrypt_spinner.text = dec_users[0]
+        elif not dec_users:
+            self.ids.decrypt_spinner.text = 'Нет приватных ключей'
         self._hide_warning()
 
     def _show_warning(self, txt="Выберите пользователя из списка!"):
@@ -1201,10 +1472,11 @@ class TextScreen(Screen):
             show_msg("Ошибка шифрования", str(e))
 
     def decrypt_action(self):
-        username = self.ids.user_spinner.text
+        # Используем спиннер расшифровки
+        username = self.ids.decrypt_spinner.text
         text = self.ids.text_input.text.strip()
-        if username == 'Выберите пользователя' or not username:
-            self._show_warning(); return
+        if not username or username == 'Нет приватных ключей':
+            show_msg("Ошибка", "Нет пользователя с приватным ключом!"); return
         if not text:
             show_msg("Ошибка", "Вставьте зашифрованный JSON!"); return
         self._hide_warning()
@@ -1525,6 +1797,75 @@ class GroupScreen(Screen):
             self.ids.group_input.text = txt
 
 
+# ==================== LEGACY ЭКРАН ====================
+
+class LegacyScreen(Screen):
+    """Прямое RSA-OAEP без AES-обёртки — совместимость со старой консольной версией."""
+
+    def on_enter(self):
+        users = App.get_running_app().backend.load_users()
+        enc_users = [u['username'] for u in users if u.get('public_key_path')]
+        dec_users = [u['username'] for u in users if u.get('private_key_path')]
+
+        self.ids.enc_spinner.values = enc_users
+        self.ids.dec_spinner.values = dec_users
+
+        if dec_users and self.ids.dec_spinner.text not in dec_users:
+            self.ids.dec_spinner.text = dec_users[0]
+        elif not dec_users:
+            self.ids.dec_spinner.text = 'Нет приватных ключей'
+
+    def clear_field(self):
+        self.ids.legacy_input.text = ''
+
+    def paste_clipboard(self):
+        txt = Clipboard.paste()
+        if txt:
+            self.ids.legacy_input.text = txt
+
+    def encrypt_action(self):
+        username = self.ids.enc_spinner.text
+        text = self.ids.legacy_input.text.strip()
+        if not username or username == 'Выберите пользователя':
+            show_msg("Ошибка", "Выберите пользователя для шифрования!"); return
+        if not text:
+            show_msg("Ошибка", "Введите текст!"); return
+        backend = App.get_running_app().backend
+        user = next((u for u in backend.load_users() if u['username'] == username), None)
+        if not user or not user.get('public_key_path'):
+            show_msg("Ошибка", "Нет публичного ключа!"); return
+        try:
+            res = backend.encrypt_text_legacy(user['public_key_path'], text)
+            self.ids.legacy_input.text = res
+            if self.ids.legacy_auto_copy.active:
+                Clipboard.copy(res)
+                show_msg("Успех", "Зашифровано (Legacy) и скопировано!")
+            else:
+                show_msg("Успех", "Текст зашифрован (Legacy)!")
+            App.get_running_app().log_action(f"Legacy шифрование для {username}")
+        except Exception as e:
+            show_msg("Ошибка шифрования", str(e))
+
+    def decrypt_action(self):
+        username = self.ids.dec_spinner.text
+        text = self.ids.legacy_input.text.strip()
+        if not username or username == 'Нет приватных ключей':
+            show_msg("Ошибка", "Нет пользователя с приватным ключом!"); return
+        if not text:
+            show_msg("Ошибка", "Вставьте base64-строку для расшифровки!"); return
+        backend = App.get_running_app().backend
+        user = next((u for u in backend.load_users() if u['username'] == username), None)
+        if not user or not user.get('private_key_path'):
+            show_msg("Ошибка", "Нет приватного ключа!"); return
+        try:
+            res = backend.decrypt_text_legacy(user['private_key_path'], text)
+            self.ids.legacy_input.text = res
+            show_msg("Успех", "Текст расшифрован (Legacy)!")
+            App.get_running_app().log_action(f"Legacy расшифровка для {username}")
+        except Exception as e:
+            show_msg("Ошибка расшифровки", str(e))
+
+
 # ==================== НАСТРОЙКИ ====================
 
 COLOR_LABELS = {
@@ -1677,6 +2018,7 @@ class SCMessApp(App):
         sm.add_widget(TextScreen(name='text'))
         sm.add_widget(FileScreen(name='files'))
         sm.add_widget(GroupScreen(name='group'))
+        sm.add_widget(LegacyScreen(name='legacy'))
         sm.add_widget(SettingsScreen(name='settings'))
         return sm
 
