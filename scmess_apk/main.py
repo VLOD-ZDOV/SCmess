@@ -373,15 +373,28 @@ KV = '''
                 font_size: '18sp'
                 bold: True
                 color: app.theme['title_color']
+        SectionLabel:
+            text: 'Для шифрования (публичный ключ):'
         Spinner:
-            id: user_spinner
+            id: enc_spinner
             text: 'Выберите пользователя'
             background_normal: ''
             background_color: app.theme['btn_bg']
             color: app.theme['btn_text']
             font_size: '15sp'
             size_hint_y: None
-            height: dp(46)
+            height: dp(44)
+        SectionLabel:
+            text: 'Для расшифровки (приватный ключ):'
+        Spinner:
+            id: dec_spinner
+            text: 'Нет приватных ключей'
+            background_normal: ''
+            background_color: app.theme['input_bg']
+            color: app.theme['accent']
+            font_size: '15sp'
+            size_hint_y: None
+            height: dp(44)
         Label:
             id: user_warning
             text: ''
@@ -410,7 +423,6 @@ KV = '''
             ToggleBtn:
                 id: native_switch
                 active: False
-        # Строка выбранного файла
         BoxLayout:
             size_hint_y: None
             height: dp(42)
@@ -430,6 +442,14 @@ KV = '''
                 valign: 'middle'
                 padding_x: dp(12)
                 text_size: self.width - dp(12), None
+        # Прогресс-бар (скрыт по умолчанию)
+        Label:
+            id: progress_label
+            text: ''
+            color: app.theme['accent']
+            font_size: '12sp'
+            size_hint_y: None
+            height: dp(0)
         StyledButton:
             text: 'Выбрать файл'
             size_hint_y: None
@@ -651,6 +671,16 @@ KV = '''
             size_hint_y: None
             height: dp(48)
             on_release: root.save_settings()
+        StyledButton:
+            text: 'Логи приложения'
+            size_hint_y: None
+            height: dp(44)
+            on_release: root.show_logs()
+        StyledButton:
+            text: 'Версия 1.7 — Что нового?'
+            size_hint_y: None
+            height: dp(44)
+            on_release: root.show_changelog()
         StyledButton:
             text: 'Назад'
             size_hint_y: None
@@ -1036,29 +1066,120 @@ class CryptoBackend:
         dec = Cipher(algorithms.AES(aes_key), modes.GCM(iv, tag), default_backend()).decryptor()
         return (dec.update(ct) + dec.finalize()).decode()
 
-    def encrypt_file_gcm(self, pub_key_path, file_path):
-        aes_key = os.urandom(32); iv = os.urandom(12)
-        enc = Cipher(algorithms.AES(aes_key), modes.GCM(iv), default_backend()).encryptor()
-        with open(file_path, 'rb') as f: plain = f.read()
-        ct = enc.update(plain) + enc.finalize()
+    def encrypt_file_gcm(self, pub_key_path, file_path, progress_cb=None):
+        """Потоковое шифрование файла блоками по 64 КБ.
+        progress_cb(fraction) вызывается в процессе, если передан.
+        Результат сохраняется рядом с оригиналом (или в Downloads на Android)."""
+        from cryptography.exceptions import InvalidTag
+
         with open(pub_key_path, 'rb') as f:
             pub = serialization.load_pem_public_key(f.read(), default_backend())
-        enc_key = pub.encrypt(aes_key, self._oaep())
-        out = file_path + ".enc"
-        with open(out, 'wb') as f: f.write(enc_key + iv + enc.tag + ct)
+        # Определяем длину зашифрованного RSA-блока по размеру ключа (не хардкодим 512)
+        rsa_block_len = pub.key_size // 8  # 4096→512, 2048→256
+
+        aes_key = os.urandom(32)
+        iv      = os.urandom(12)
+        enc = Cipher(algorithms.AES(aes_key), modes.GCM(iv), default_backend()).encryptor()
+        enc_aes_key = pub.encrypt(aes_key, self._oaep())
+
+        # Выходной файл — рядом с оригиналом если возможно, иначе в Downloads
+        out = self._output_path(file_path, '.enc')
+
+        file_size = os.path.getsize(file_path)
+        CHUNK = 65536
+
+        with open(file_path, 'rb') as src, open(out, 'wb') as dst:
+            # Заголовок: 2 байта длина RSA-блока + RSA-блок + IV
+            dst.write(rsa_block_len.to_bytes(2, 'big'))
+            dst.write(enc_aes_key)
+            dst.write(iv)
+            # Шифруем блоками
+            done = 0
+            while True:
+                chunk = src.read(CHUNK)
+                if not chunk:
+                    break
+                dst.write(enc.update(chunk))
+                done += len(chunk)
+                if progress_cb and file_size:
+                    progress_cb(done / file_size)
+            dst.write(enc.finalize())
+            dst.write(enc.tag)   # 16 байт тега в конце файла
+
         return out
 
-    def decrypt_file_gcm(self, priv_key_path, file_path):
-        with open(file_path, 'rb') as f:
-            enc_key = f.read(512); iv = f.read(12); tag = f.read(16); ct = f.read()
+    def decrypt_file_gcm(self, priv_key_path, file_path, progress_cb=None):
+        """Потоковая расшифровка. Формат: 2б(len) + RSA_key + IV + ciphertext + 16б(tag)."""
+        from cryptography.exceptions import InvalidTag
+
         with open(priv_key_path, 'rb') as f:
             priv = serialization.load_pem_private_key(f.read(), None, default_backend())
-        aes_key = priv.decrypt(enc_key, self._oaep())
+
+        with open(file_path, 'rb') as src:
+            # Читаем заголовок
+            rsa_block_len = int.from_bytes(src.read(2), 'big')
+            enc_aes_key   = src.read(rsa_block_len)
+            iv            = src.read(12)
+            # Всё остальное — шифртекст + 16-байт тег в конце
+            body          = src.read()
+
+        if len(body) < 16:
+            raise ValueError("Файл повреждён или не является зашифрованным файлом SCmess.")
+
+        ciphertext = body[:-16]
+        tag        = body[-16:]
+
+        try:
+            aes_key = priv.decrypt(enc_aes_key, self._oaep())
+        except Exception:
+            raise ValueError("Неверный ключ: не удалось расшифровать сессионный ключ.")
+
         dec = Cipher(algorithms.AES(aes_key), modes.GCM(iv, tag), default_backend()).decryptor()
-        data = dec.update(ct) + dec.finalize()
-        out = file_path[:-4] if file_path.lower().endswith('.enc') else file_path + ".dec"
-        with open(out, 'wb') as f: f.write(data)
+
+        out = self._output_path(file_path, None)  # убираем .enc или добавляем .dec
+        CHUNK = 65536
+        total = len(ciphertext)
+        done  = 0
+
+        try:
+            with open(out, 'wb') as dst:
+                for i in range(0, total, CHUNK):
+                    block = ciphertext[i:i+CHUNK]
+                    dst.write(dec.update(block))
+                    done += len(block)
+                    if progress_cb and total:
+                        progress_cb(done / total)
+                dst.write(dec.finalize())
+        except InvalidTag:
+            # Удаляем битый выходной файл
+            try: os.remove(out)
+            except: pass
+            raise ValueError("Ошибка проверки целостности (GCM tag). Файл повреждён или использован неверный ключ.")
+
         return out
+
+    @staticmethod
+    def _output_path(src_path, suffix):
+        """Вычислить путь для выходного файла рядом с исходным.
+        suffix='.enc' → добавляет .enc; suffix=None → убирает .enc или добавляет .dec.
+        Если директория недоступна для записи — падаем в Downloads."""
+        if suffix == '.enc':
+            candidate = src_path + '.enc'
+        else:
+            candidate = src_path[:-4] if src_path.lower().endswith('.enc') else src_path + '.dec'
+
+        # Проверяем доступность директории
+        out_dir = os.path.dirname(candidate) or '.'
+        try:
+            test = os.path.join(out_dir, '.scmess_write_test')
+            with open(test, 'wb') as f: f.write(b'')
+            os.remove(test)
+            return candidate
+        except (OSError, PermissionError):
+            # Нет прав — сохраняем в Downloads
+            dl = '/storage/emulated/0/Download' if platform == 'android' else os.path.expanduser('~/Downloads')
+            os.makedirs(dl, exist_ok=True)
+            return os.path.join(dl, os.path.basename(candidate))
 
     def encrypt_group(self, pub_paths_list, text):
         """Шифруем для списка публичных ключей.
@@ -1497,23 +1618,39 @@ class TextScreen(Screen):
 # Файловый экран — главная точка фикса Document UI
 # ────────────────────────────────────────────────────────────────────
 class FileScreen(Screen):
-    # Здесь хранится итоговый ПУТЬ к файлу (строка, всегда читаемый файл)
     selected_file = None
-    # Для случая Document UI хранит URI пока файл не скопирован
-    _pending_uri = None
+    _pending_uri  = None
+    _busy         = False   # блокировка повторного нажатия во время операции
 
     def on_enter(self):
-        users = App.get_running_app().backend.load_users()
-        self.ids.user_spinner.values = [u['username'] for u in users if u.get('public_key_path')]
+        app   = App.get_running_app()
+        users = app.backend.load_users()
+        enc_users = [u['username'] for u in users if u.get('public_key_path')]
+        dec_users = [u['username'] for u in users if u.get('private_key_path')]
+        self.ids.enc_spinner.values = enc_users
+        self.ids.dec_spinner.values = dec_users
+        if dec_users and self.ids.dec_spinner.text not in dec_users:
+            self.ids.dec_spinner.text = dec_users[0]
+        elif not dec_users:
+            self.ids.dec_spinner.text = 'Нет приватных ключей'
         self._hide_warning()
+        self._hide_progress()
 
-    def _show_warning(self, txt="Выберите пользователя из списка!"):
-        self.ids.user_warning.text = txt
+    def _show_warning(self, txt="Выберите пользователя!"):
+        self.ids.user_warning.text   = txt
         self.ids.user_warning.height = dp(28)
 
     def _hide_warning(self):
-        self.ids.user_warning.text = ''
+        self.ids.user_warning.text   = ''
         self.ids.user_warning.height = dp(0)
+
+    def _show_progress(self, txt):
+        self.ids.progress_label.text   = txt
+        self.ids.progress_label.height = dp(22)
+
+    def _hide_progress(self):
+        self.ids.progress_label.text   = ''
+        self.ids.progress_label.height = dp(0)
 
     # ── Выбор файла ──────────────────────────────────────────────────
     def choose_file(self):
@@ -1533,7 +1670,6 @@ class FileScreen(Screen):
         box.add_widget(btn)
         mv = ModalView(size_hint=(0.97, 0.93))
         mv.add_widget(box)
-
         def on_sel(_):
             if chooser.selection:
                 self._set_file(chooser.selection[0])
@@ -1542,7 +1678,6 @@ class FileScreen(Screen):
         mv.open()
 
     def _set_file(self, path):
-        """Запомнить путь и показать имя файла."""
         self.selected_file = path
         self._pending_uri  = None
         self.ids.file_label.text  = os.path.basename(path)
@@ -1550,14 +1685,12 @@ class FileScreen(Screen):
         App.get_running_app().log_action(f"Выбран файл: {os.path.basename(path)}")
 
     def _open_document_ui(self):
-        """Запускает системный Android-пикер; результат придёт в _on_android_result."""
         try:
-            Intent        = _autoclass('android.content.Intent')
+            Intent         = _autoclass('android.content.Intent')
             PythonActivity = _autoclass('org.kivy.android.PythonActivity')
             intent = Intent(Intent.ACTION_OPEN_DOCUMENT)
             intent.addCategory(Intent.CATEGORY_OPENABLE)
             intent.setType("*/*")
-            # Снимаем старый обработчик (если был) и ставим новый
             try: _android_activity.unbind(on_activity_result=self._on_android_result)
             except: pass
             _android_activity.bind(on_activity_result=self._on_android_result)
@@ -1568,126 +1701,69 @@ class FileScreen(Screen):
             self._open_kivy_picker()
 
     def _on_android_result(self, requestCode, resultCode, data):
-        """Обработчик результата Android-пикера.
-
-        Проблема: Uri — Java-объект, его нельзя просто str()-ить.
-        Решение:  читаем содержимое через ContentResolver.openInputStream(),
-                  копируем во временный файл в кэше приложения и работаем с ним.
-        """
         if requestCode != 42:
             return
-        try:
-            _android_activity.unbind(on_activity_result=self._on_android_result)
+        try: _android_activity.unbind(on_activity_result=self._on_android_result)
         except: pass
-
-        if resultCode != -1 or data is None:   # RESULT_OK == -1 в Java
+        if resultCode != -1 or data is None:
             show_msg("Файл не выбран", "Выбор файла отменён.")
             return
-
         try:
             uri = data.getData()
             if uri is None:
-                show_msg("Ошибка", "URI файла не получен.")
-                return
-
-            # Пробуем получить отображаемое имя через DocumentsContract
+                show_msg("Ошибка", "URI файла не получен."); return
             display_name = self._get_display_name(uri)
-
-            # Копируем содержимое файла во временный кэш-файл
-            tmp_path = self._copy_uri_to_cache(uri, display_name)
-            if tmp_path:
-                Clock.schedule_once(lambda dt: self._set_file(tmp_path), 0)
-            else:
-                show_msg("Ошибка", "Не удалось прочитать файл через Document UI.")
+            self._show_progress("Копирование файла...")
+            # Копируем в поток чтобы UI не завис
+            def copy_thread():
+                tmp = self._copy_uri_fast(uri, display_name)
+                def done(dt):
+                    self._hide_progress()
+                    if tmp:
+                        self._set_file(tmp)
+                    else:
+                        show_msg("Ошибка", "Не удалось прочитать файл.")
+                Clock.schedule_once(done, 0)
+            threading.Thread(target=copy_thread, daemon=True).start()
         except Exception as e:
+            self._hide_progress()
             show_msg("Ошибка Document UI", str(e))
 
     def _get_display_name(self, uri):
-        """Безопасно извлекает имя файла из Uri через ContentResolver."""
         try:
-            context   = _autoclass('org.kivy.android.PythonActivity').mActivity
-            cursor    = context.getContentResolver().query(uri, None, None, None, None)
+            context = _autoclass('org.kivy.android.PythonActivity').mActivity
+            cursor  = context.getContentResolver().query(uri, None, None, None, None)
             if cursor and cursor.moveToFirst():
-                # Пробуем стандартную колонку OpenableColumns.DISPLAY_NAME
-                idx = cursor.getColumnIndex("_display_name")
-                if idx < 0:
-                    idx = cursor.getColumnIndex("display_name")
-                if idx >= 0:
-                    name = cursor.getString(idx)
-                    cursor.close()
-                    if name:
-                        return name
-            if cursor:
-                cursor.close()
+                for col in ("_display_name", "display_name"):
+                    idx = cursor.getColumnIndex(col)
+                    if idx >= 0:
+                        name = cursor.getString(idx)
+                        cursor.close()
+                        if name: return name
+            if cursor: cursor.close()
         except Exception:
             pass
-        # Fallback: берём последний сегмент URI
         try:
-            uri_str = uri.toString()
-            return uri_str.split('/')[-1].split('%2F')[-1] or "document_file"
+            s = uri.toString()
+            return s.split('/')[-1].split('%2F')[-1] or "document_file"
         except:
             return "document_file"
 
-    def _copy_uri_to_cache(self, uri, filename):
-        """Читает InputStream из Uri, пишет в файл кэша приложения.
-           Возвращает путь к временному файлу или None при ошибке.
-        """
-        try:
-            context  = _autoclass('org.kivy.android.PythonActivity').mActivity
-            resolver = context.getContentResolver()
-            stream   = resolver.openInputStream(uri)
-            if stream is None:
-                return None
-
-            # Читаем байты через Java
-            buf   = _autoclass('java.io.BufferedInputStream')(stream)
-            chunk = 65536
-            data  = bytearray()
-            arr   = _autoclass('java.lang.reflect.Array')
-            byte_arr = _autoclass('[B')(chunk)  # byte[chunk]
-
-            # Используем Python-совместимый способ чтения
-            ByteArrayOutputStream = _autoclass('java.io.ByteArrayOutputStream')
-            baos = ByteArrayOutputStream()
-            read = buf.read()
-            while read != -1:
-                baos.write(read)
-                read = buf.read()
-            buf.close()
-            java_bytes = baos.toByteArray()
-            # Конвертируем Java byte[] → Python bytes
-            py_bytes = bytes(java_bytes)
-
-            # Сохраняем во временный файл
-            cache_dir = context.getCacheDir().getAbsolutePath()
-            tmp_path  = os.path.join(cache_dir, filename)
-            with open(tmp_path, 'wb') as f:
-                f.write(py_bytes)
-            return tmp_path
-        except Exception as e:
-            # Если побайтовое чтение слишком медленное — используем альтернативу
-            return self._copy_uri_to_cache_fast(uri, filename)
-
-    def _copy_uri_to_cache_fast(self, uri, filename):
-        """Быстрая альтернатива через Files.copy (Android API 26+) или ParcelFileDescriptor."""
+    def _copy_uri_fast(self, uri, filename):
+        """Копирование через ParcelFileDescriptor fd → os.read() — быстро, без JNI-цикла."""
         try:
             context  = _autoclass('org.kivy.android.PythonActivity').mActivity
             resolver = context.getContentResolver()
             pfd      = resolver.openFileDescriptor(uri, "r")
-            if pfd is None:
-                return None
-            fd = pfd.getFd()  # int — числовой файловый дескриптор Linux
-
+            if pfd is None: return None
+            fd       = pfd.getFd()
             cache_dir = context.getCacheDir().getAbsolutePath()
             tmp_path  = os.path.join(cache_dir, filename)
-
-            # Читаем через Python os.read() по fd — быстро и просто
-            CHUNK = 1 << 20  # 1 MB
+            CHUNK = 1 << 20
             with open(tmp_path, 'wb') as out:
                 while True:
                     chunk = os.read(fd, CHUNK)
-                    if not chunk:
-                        break
+                    if not chunk: break
                     out.write(chunk)
             pfd.close()
             return tmp_path
@@ -1695,42 +1771,76 @@ class FileScreen(Screen):
             show_msg("Ошибка чтения файла", str(e))
             return None
 
-    # ── Шифрование / расшифровка файлов ──────────────────────────────
+    # ── Шифрование / расшифровка ──────────────────────────────────────
     def encrypt_file(self):
-        username = self.ids.user_spinner.text
-        if username == 'Выберите пользователя' or not username:
-            self._show_warning(); return
+        if self._busy: return
+        username = self.ids.enc_spinner.text
+        if not username or username == 'Выберите пользователя':
+            self._show_warning("Выберите пользователя для шифрования!"); return
         self._hide_warning()
         if not self.selected_file:
             show_msg("Ошибка", "Сначала выберите файл!"); return
-        user = next((u for u in App.get_running_app().backend.load_users()
-                     if u['username'] == username), None)
+        app  = App.get_running_app()
+        user = next((u for u in app.backend.load_users() if u['username'] == username), None)
         if not user or not user.get('public_key_path'):
             show_msg("Ошибка", "Нет публичного ключа!"); return
-        try:
-            out = App.get_running_app().backend.encrypt_file_gcm(user['public_key_path'], self.selected_file)
-            App.get_running_app().log_action(f"Зашифрован: {os.path.basename(self.selected_file)}")
-            show_msg("Успех", f"Зашифрован!\n{os.path.basename(out)}")
-        except Exception as e:
-            show_msg("Ошибка шифрования", str(e))
+
+        self._busy = True
+        self._show_progress("Шифрование... 0%")
+
+        def progress(frac):
+            Clock.schedule_once(lambda dt: self._show_progress(f"Шифрование... {int(frac*100)}%"), 0)
+
+        def run():
+            try:
+                out = app.backend.encrypt_file_gcm(user['public_key_path'], self.selected_file, progress)
+                app.log_action(f"Зашифрован: {os.path.basename(self.selected_file)}")
+                def done(dt):
+                    self._busy = False; self._hide_progress()
+                    show_msg("Готово", f"Зашифрован!\nСохранён: {os.path.basename(out)}\nПапка: {os.path.dirname(out)}")
+                Clock.schedule_once(done, 0)
+            except Exception as e:
+                def err(dt):
+                    self._busy = False; self._hide_progress()
+                    show_msg("Ошибка шифрования", str(e))
+                Clock.schedule_once(err, 0)
+
+        threading.Thread(target=run, daemon=True).start()
 
     def decrypt_file(self):
-        username = self.ids.user_spinner.text
-        if username == 'Выберите пользователя' or not username:
-            self._show_warning(); return
+        if self._busy: return
+        username = self.ids.dec_spinner.text
+        if not username or username == 'Нет приватных ключей':
+            self._show_warning("Нет пользователя с приватным ключом!"); return
         self._hide_warning()
         if not self.selected_file:
             show_msg("Ошибка", "Сначала выберите файл!"); return
-        user = next((u for u in App.get_running_app().backend.load_users()
-                     if u['username'] == username), None)
+        app  = App.get_running_app()
+        user = next((u for u in app.backend.load_users() if u['username'] == username), None)
         if not user or not user.get('private_key_path'):
             show_msg("Ошибка", "Нет приватного ключа!"); return
-        try:
-            out = App.get_running_app().backend.decrypt_file_gcm(user['private_key_path'], self.selected_file)
-            App.get_running_app().log_action(f"Расшифрован: {os.path.basename(self.selected_file)}")
-            show_msg("Успех", f"Расшифрован!\n{os.path.basename(out)}")
-        except Exception as e:
-            show_msg("Ошибка расшифровки", str(e))
+
+        self._busy = True
+        self._show_progress("Расшифровка... 0%")
+
+        def progress(frac):
+            Clock.schedule_once(lambda dt: self._show_progress(f"Расшифровка... {int(frac*100)}%"), 0)
+
+        def run():
+            try:
+                out = app.backend.decrypt_file_gcm(user['private_key_path'], self.selected_file, progress)
+                app.log_action(f"Расшифрован: {os.path.basename(self.selected_file)}")
+                def done(dt):
+                    self._busy = False; self._hide_progress()
+                    show_msg("Готово", f"Расшифрован!\nСохранён: {os.path.basename(out)}\nПапка: {os.path.dirname(out)}")
+                Clock.schedule_once(done, 0)
+            except Exception as e:
+                def err(dt):
+                    self._busy = False; self._hide_progress()
+                    show_msg("Ошибка расшифровки", str(e))
+                Clock.schedule_once(err, 0)
+
+        threading.Thread(target=run, daemon=True).start()
 
 
 class GroupScreen(Screen):
@@ -1969,8 +2079,67 @@ class SettingsScreen(Screen):
                 new_theme[key] = hex_to_rgba(inp.text, alpha)
             except: pass
         app.theme = new_theme
-        app._apply_theme()   # сохраняет + рассылает событие виджетам
+        app._apply_theme()
         show_msg("Настройки", "Тема сохранена!")
+
+    def show_logs(self):
+        app = App.get_running_app()
+        t   = app.theme
+        if not app.action_log:
+            show_msg("Логи", "Пока нет записей.\nДействия появляются здесь автоматически\n(шифрование, расшифровка, выбор файлов и т.д.).")
+            return
+        sv  = ScrollView()
+        box = BoxLayout(orientation='vertical', size_hint_y=None, spacing=dp(2), padding=dp(8))
+        box.bind(minimum_height=box.setter('height'))
+        for line in reversed(app.action_log):
+            lbl = Label(text=line, size_hint_y=None, height=dp(30), halign='left',
+                        valign='middle', color=t['input_fg'], font_size='12sp')
+            lbl.bind(width=lambda i, v: setattr(i, 'text_size', (v, None)))
+            box.add_widget(lbl)
+        sv.add_widget(box)
+        mv = ModalView(size_hint=(0.96, 0.86), background_color=t['log_bg'])
+        outer = BoxLayout(orientation='vertical', padding=dp(10), spacing=dp(8))
+        outer.add_widget(Label(text="Логи приложения", font_size='16sp', bold=True,
+                               color=t['title_color'], size_hint_y=None, height=dp(36)))
+        outer.add_widget(sv)
+        btn = Button(text='Закрыть', size_hint_y=None, height=dp(44),
+                     background_normal='', background_color=t['btn_bg'], color=t['btn_text'])
+        btn.bind(on_release=mv.dismiss)
+        outer.add_widget(btn)
+        mv.add_widget(outer)
+        mv.open()
+
+    def show_changelog(self):
+        changelog = (
+            "SCmess v1.7\n\n"
+            "НОВОЕ:\n"
+            "• Потоковое шифрование файлов — теперь файлы любого размера\n"
+            "  шифруются блоками по 64 КБ в фоновом потоке, интерфейс\n"
+            "  не зависает, показывается прогресс в процентах.\n\n"
+            "• Фикс RSA-2048: заголовок файла теперь хранит точную длину\n"
+            "  RSA-блока (2 байта), что обеспечивает совместимость ключей\n"
+            "  любого размера (2048 и 4096 бит).\n\n"
+            "• Файлы сохраняются рядом с оригиналом. Если папка недоступна\n"
+            "  (Document UI) — автоматически в Download.\n\n"
+            "• Экран файлов: два отдельных спиннера для шифрования\n"
+            "  (публичный ключ) и расшифровки (приватный ключ по умолчанию).\n\n"
+            "• Логи теперь доступны прямо в Настройках — без нужды\n"
+            "  включать режим разработчика.\n\n"
+            "• Быстрое копирование файлов через Document UI:\n"
+            "  ParcelFileDescriptor + os.read() вместо побайтового JNI.\n\n"
+            "• Автоопределение типа ключа (PRIVATE/PUBLIC) при импорте\n"
+            "  из файла и текстом. Один пользователь может иметь оба ключа.\n\n"
+            "• Fingerprint ключей в карточке пользователя (SHA-256, 8 байт).\n\n"
+            "• Групповое шифрование: имена заменены на fingerprint'ы —\n"
+            "  нет утечки метаданных о получателях.\n\n"
+            "• Legacy-шифрование: прямой RSA-OAEP (совместимость\n"
+            "  со старой консольной версией).\n\n"
+            "• Подтверждение при удалении пользователя.\n"
+            "• AMOLED тема: истинный чёрный (#000000) фон.\n"
+            "• Кастомный переключатель вместо системного Switch.\n"
+            "• Попапы без системного дизайна 2010 года."
+        )
+        show_msg("Что нового в v1.7", changelog)
 
 
 # ==================== APP ====================
