@@ -47,15 +47,30 @@ def get_public_key_directory():
 # =============================================================================
 
 def info():
-    info = """
-    1. Сначала надо сгенерировать ключи, найти их в папке (будет написано) и отправить другу
-    2. После получения ключа можно воспользоваться автосканом, если он не работает написать путь к ключу вручную
-    3. Для шифрования текста лучше использовать GCM метод, тк он имеет поддержку мульти строк и шифрует до 64гб текста
-    4. Чтобы обнулить программу удалите файл keys.json и по желанию ключи
-    5. GitHub создателя: https://github.com/VLOD-ZDOV
-    6. Версия - 7.0
-    """
-    print(info)
+    print("""
+SCmess — программа для шифрования сообщений и файлов с помощью RSA-ключей.
+
+Быстрый старт:
+  1. Выберите пункт 1 — создайте пару ключей, введите своё имя.
+     Приватный ключ хранится у вас; публичный ключ отправьте собеседнику.
+  2. Добавьте публичный ключ собеседника через пункт 6 или автоскан (пункт 9).
+  3. Зашифруйте сообщение (пункт 2) — скопируйте результат и отправьте.
+  4. Для расшифровки вставьте полученный JSON в пункт 3.
+
+Методы шифрования:
+  • AES-GCM (пп. 2–5) — основной метод, до 64 ГБ, совместим с Rust-версией.
+  • Legacy RSA (пп. 12–15) — включить через пункт 11.
+  • PQC Kyber + XChaCha20 (пп. 18–21) — включить через пункт 16.
+  • Режим переписки (пункт 17) — автоматически определяет входящие сообщения.
+
+Управление пользователями:
+  7. Показать всех пользователей и их статус.
+  8. Удалить пользователя.
+  24. Включить/выключить пользователя.
+
+Сброс: удалите файл keys.json (и ключи по желанию).
+GitHub: https://github.com/VLOD-ZDOV/SCmess  |  Версия: 1.7
+""")
     
 # =============================================================================
 # Загружаем или создаём файл конфига legacy режима
@@ -66,9 +81,9 @@ if os.path.exists(CONFIG_FILE):
         try:
             config = json.load(config_file)
         except json.JSONDecodeError:
-            config = {"legacy_mode": False}
+            config = {"legacy_mode": False, "first_run": True}
 else:
-    config = {"legacy_mode": False}
+    config = {"legacy_mode": False, "first_run": True}
 
 with open(CONFIG_FILE, 'w') as config_file:
     json.dump(config, config_file, indent=4)
@@ -87,7 +102,7 @@ def toggle_legacy_mode():
 # Генерация пары ключей RSA с использованием имени пользователя и текущей даты.
 # =============================================================================
 
-def generate_key_pair(username):
+def generate_key_pair(username, key_size=4096):
     current_time = datetime.now().strftime("%Y%m%d%H%M%S")
 
     # Пути для сохранения ключей
@@ -101,7 +116,7 @@ def generate_key_pair(username):
     # Генерация приватного ключа
     private_key = rsa.generate_private_key(
         public_exponent=65537,
-        key_size=4096,
+        key_size=key_size,
         backend=default_backend()
     )
 
@@ -375,6 +390,7 @@ def print_menu():
     {pqc_menu}
     {group_chat_menu}
     17. Начать переписку
+    24. Включить/выключить пользователя
     0. Выйти из программы
     """.format(
         toggle_legacy="Выключить Legacy-режим" if config.get('legacy_mode', False) else "Включить Legacy-режим",
@@ -436,10 +452,15 @@ def chat_mode(json_file):
             message = get_multiline_input()
 
             if mode == "AES-GCM":
-                if message.strip().startswith("{'aes_key':"):
+                msg = message.strip()
+                is_encrypted = msg.startswith("{'aes_key':") or msg.startswith('{"aes_key":')
+                if is_encrypted:
                     if private_key_path:
                         try:
-                            encrypted_data = eval(message)  # Предполагается, что безопасно в данном контексте
+                            try:
+                                encrypted_data = json.loads(msg)
+                            except (json.JSONDecodeError, ValueError):
+                                encrypted_data = eval(msg)
                             decrypted_text = decrypt_text_gcm(private_key_path, encrypted_data)
                             print(f"Расшифрованное сообщение: {decrypted_text}")
                         except Exception as e:
@@ -448,11 +469,12 @@ def chat_mode(json_file):
                         print("Приватный ключ недоступен для расшифровки.")
                 else:
                     encrypted_data = encrypt_text_gcm(public_key_path, message)
-                    print(f"Зашифрованное сообщение: {encrypted_data}")
+                    encrypted_json = json.dumps(encrypted_data)
+                    print(f"Зашифрованное сообщение:\n{encrypted_json}")
                     if copy_notifications:
                         copy_choice = input("Скопировать зашифрованный текст в буфер обмена? (д/н): ").strip().lower()
                         if copy_choice in ["д", "y"]:
-                            pyperclip.copy(str(encrypted_data))
+                            pyperclip.copy(encrypted_json)
                             print("Зашифрованный текст скопирован в буфер обмена.")
 
             elif mode == "RSA":
@@ -1273,9 +1295,19 @@ def main():
         with open(json_file, 'w') as file:
             json.dump([], file)
 
+    # Показать информацию при первом запуске
+    if config.get("first_run", True):
+        config["first_run"] = False
+        with open("config.json", 'w') as config_file:
+            json.dump(config, config_file, indent=4)
+        info()
+
     def handle_choice_1():
         username = input("Введите имя пользователя: ")
-        priv, pub = generate_key_pair(username)
+        print("Выберите длину ключа RSA: 1. 4096 (надёжнее)  2. 2048 (быстрее)")
+        size_choice = input("Ваш выбор (Enter = 4096): ").strip()
+        key_size = 2048 if size_choice == "2" else 4096
+        priv, pub = generate_key_pair(username, key_size)
         save_keys_to_json(username, pub, priv, json_file)
 
     def handle_choice_2():
@@ -1283,15 +1315,20 @@ def main():
         public_key_path, _ = get_user_to_encrypt(json_file)
         if public_key_path:
             encrypted = encrypt_text_gcm(public_key_path, text)
-            print(f"Зашифрованные данные (AES-GCM): {encrypted}")
+            encrypted_json = json.dumps(encrypted)
+            print(f"Зашифрованные данные (AES-GCM):\n{encrypted_json}")
             if input("Скопировать в буфер? (д/н): ").strip().lower() in ["д", "y"]:
-                pyperclip.copy(str(encrypted))
+                pyperclip.copy(encrypted_json)
                 print("Скопировано в буфер обмена.")
 
     def handle_choice_3():
         private_key_path, _ = get_user_to_decrypt(json_file)
         if private_key_path:
-            data = eval(input("Введите зашифрованные данные (dict): "))
+            raw = input("Введите зашифрованные данные (JSON): ")
+            try:
+                data = json.loads(raw)
+            except (json.JSONDecodeError, ValueError):
+                data = eval(raw)
             print("Расшифрованный текст:", decrypt_text_gcm(private_key_path, data))
 
     def handle_choice_4():
@@ -1328,7 +1365,8 @@ def main():
     def handle_choice_7():
         with open(json_file) as f:
             for entry in json.load(f):
-                print(f"Имя: {entry['username']}, Публичный: {entry.get('public_key_path')}, Приватный: {entry.get('private_key_path')}")
+                status = "включен" if entry.get('enabled', True) else "выключен"
+                print(f"Имя: {entry['username']}, Статус: {status}, Публичный: {entry.get('public_key_path')}, Приватный: {entry.get('private_key_path')}")
 
     def handle_choice_8():
         with open(json_file, 'r') as f:
@@ -1471,6 +1509,32 @@ def main():
         priv, pub = generate_key_pair_math(username)
         save_keys_to_json(username, pub, priv, json_file)
 
+    def handle_choice_24():
+        with open(json_file, 'r') as f:
+            try:
+                data = json.load(f)
+            except json.JSONDecodeError:
+                data = []
+        if not data:
+            print("Список пользователей пуст.")
+            return
+        for idx, entry in enumerate(data):
+            status = "включен" if entry.get('enabled', True) else "выключен"
+            print(f"{idx + 1}. {entry['username']} [{status}]")
+        try:
+            choice = int(input("Выберите пользователя: ")) - 1
+            if 0 <= choice < len(data):
+                current = data[choice].get('enabled', True)
+                data[choice]['enabled'] = not current
+                new_status = "включен" if data[choice]['enabled'] else "выключен"
+                with open(json_file, 'w') as f:
+                    json.dump(data, f, indent=4)
+                print(f"Пользователь '{data[choice]['username']}' теперь {new_status}.")
+            else:
+                print("Неверный номер.")
+        except ValueError:
+            print("Введите число.")
+
     handlers = {
         "1": handle_choice_1, "2": handle_choice_2, "3": handle_choice_3,
         "4": handle_choice_4, "5": handle_choice_5, "6": handle_choice_6,
@@ -1479,7 +1543,8 @@ def main():
         "13": handle_choice_13, "14": handle_choice_14, "15": handle_choice_15,
         "16": handle_choice_16, "17": handle_choice_17, "18": handle_choice_18,
         "19": handle_choice_19, "20": handle_choice_20, "21": handle_choice_21,
-        "22": handle_choice_22,"23": handle_choice_group_chat, "0": lambda: exit("Выход.")
+        "22": handle_choice_22, "23": handle_choice_group_chat,
+        "24": handle_choice_24, "0": lambda: exit("Выход.")
     }
 
     while True:

@@ -43,6 +43,13 @@ class SCMessGUI(QMainWindow):
         # Применение темы из конфигурации
         self.apply_theme(config.get("theme", "system"))
 
+        # Показать информацию при первом запуске
+        if config.get("first_run", True):
+            config["first_run"] = False
+            self.save_config()
+            from PySide6.QtCore import QTimer
+            QTimer.singleShot(500, self.show_info)
+
     def load_config(self):
         """Загрузка или создание файла конфигурации."""
         global config
@@ -51,9 +58,9 @@ class SCMessGUI(QMainWindow):
                 try:
                     config = json.load(f)
                 except json.JSONDecodeError:
-                    config = {"legacy_mode": False, "pqc_mode": False, "theme": "system"}
+                    config = {"legacy_mode": False, "pqc_mode": False, "theme": "system", "first_run": True}
         else:
-            config = {"legacy_mode": False, "pqc_mode": False, "theme": "system"}
+            config = {"legacy_mode": False, "pqc_mode": False, "theme": "system", "first_run": True}
         self.save_config()
 
         if not os.path.exists(KEYS_FILE):
@@ -378,7 +385,11 @@ class SCMessGUI(QMainWindow):
     def create_keys(self):
         username, ok = QInputDialog.getText(self, "Создать пару ключей", "Введите имя пользователя:")
         if ok and username:
-            priv_filename, pub_filename = self.generate_key_pair(username)
+            key_size_str, ok = QInputDialog.getItem(self, "Длина ключа RSA", "Выберите длину ключа:", ["4096 (надёжнее)", "2048 (быстрее)"], 0, False)
+            if not ok:
+                return
+            key_size = 4096 if key_size_str.startswith("4096") else 2048
+            priv_filename, pub_filename = self.generate_key_pair(username, key_size)
             self.save_keys_to_json(username, pub_filename, priv_filename)
             QMessageBox.information(self, "Успех", f"Ключи созданы:\nПриватный: {priv_filename}\nПубличный: {pub_filename}")
             if self.tabs.currentWidget() == self.group_tab:
@@ -493,7 +504,7 @@ class SCMessGUI(QMainWindow):
         public_key_path = self.get_user_to_encrypt()
         if public_key_path:
             encrypted_data = self.encrypt_text_gcm_backend(public_key_path, text)
-            self.text_input.setText(str(encrypted_data))
+            self.text_input.setText(json.dumps(encrypted_data))
             QMessageBox.information(self, "Успех", "Текст зашифрован (AES-GCM).")
 
     def decrypt_text_gcm(self):
@@ -504,7 +515,10 @@ class SCMessGUI(QMainWindow):
         private_key_path = self.get_user_to_decrypt()
         if private_key_path:
             try:
-                encrypted_data = eval(text)
+                try:
+                    encrypted_data = json.loads(text)
+                except (json.JSONDecodeError, ValueError):
+                    encrypted_data = eval(text)
                 decrypted_text = self.decrypt_text_gcm_backend(private_key_path, encrypted_data)
                 self.text_input.setText(decrypted_text)
                 QMessageBox.information(self, "Успех", "Текст расшифрован (AES-GCM).")
@@ -550,20 +564,33 @@ class SCMessGUI(QMainWindow):
         self.update_text_tab_buttons()
 
     def update_text_tab_buttons(self):
+        # Remove accumulated stretch items
+        for i in range(self.text_layout.count() - 1, -1, -1):
+            item = self.text_layout.itemAt(i)
+            if item and item.spacerItem():
+                self.text_layout.removeItem(item)
+                break
+
         if hasattr(self, "encrypt_legacy_btn"):
             self.text_layout.removeWidget(self.encrypt_legacy_btn)
             self.encrypt_legacy_btn.deleteLater()
+            del self.encrypt_legacy_btn
             self.text_layout.removeWidget(self.decrypt_legacy_btn)
             self.decrypt_legacy_btn.deleteLater()
+            del self.decrypt_legacy_btn
         if hasattr(self, "encrypt_pqc_btn"):
             self.text_layout.removeWidget(self.encrypt_pqc_btn)
             self.encrypt_pqc_btn.deleteLater()
+            del self.encrypt_pqc_btn
             self.text_layout.removeWidget(self.decrypt_pqc_btn)
             self.decrypt_pqc_btn.deleteLater()
+            del self.decrypt_pqc_btn
             self.text_layout.removeWidget(self.encrypt_pqc_pass_btn)
             self.encrypt_pqc_pass_btn.deleteLater()
+            del self.encrypt_pqc_pass_btn
             self.text_layout.removeWidget(self.decrypt_pqc_pass_btn)
             self.decrypt_pqc_pass_btn.deleteLater()
+            del self.decrypt_pqc_pass_btn
 
         if config.get("legacy_mode", False):
             self.encrypt_legacy_btn = QPushButton("Зашифровать текст (Legacy RSA)")
@@ -616,25 +643,33 @@ class SCMessGUI(QMainWindow):
         self.files_layout.addStretch()
 
     def show_info(self):
-        info_text = """
-        1. Сначала сгенерируйте ключи и отправьте публичный ключ другу.
-        2. Используйте автоскан для поиска ключей или добавьте их вручную.
-        3. Для шифрования текста рекомендуется AES-GCM (поддерживает до 64 ГБ).
-        4. Для сброса удалите keys.json и ключи.
-        5. GitHub: https://github.com/VLOD-ZDOV
-        6. Версия: 5.4 + Group Chat
-        """
-        QMessageBox.information(self, "Информация", info_text)
+        info_text = (
+            "SCmess — программа для шифрования сообщений и файлов с помощью RSA-ключей.\n\n"
+            "Быстрый старт:\n"
+            "  1. Перейдите во вкладку «Ключи» и нажмите «Создать пару ключей».\n"
+            "     Приватный ключ остаётся у вас, публичный — отправьте собеседнику.\n"
+            "  2. Добавьте публичный ключ собеседника через «Добавить ключ» или «Автоскан».\n"
+            "  3. Во вкладке «Текст» введите сообщение и нажмите «Зашифровать (AES-GCM)».\n"
+            "     Скопируйте результат и отправьте собеседнику.\n"
+            "  4. Для расшифровки вставьте зашифрованный текст и нажмите «Расшифровать».\n\n"
+            "Методы шифрования:\n"
+            "  • AES-GCM — основной метод, поддерживает текст и файлы до 64 ГБ.\n"
+            "  • Legacy RSA — включается в Настройках, совместим со старыми версиями.\n"
+            "  • PQC (Kyber + XChaCha20) — постквантовое шифрование, включается в Настройках.\n\n"
+            "Сброс: удалите файл keys.json (и ключи по желанию).\n"
+            "GitHub: https://github.com/VLOD-ZDOV/SCmess"
+        )
+        QMessageBox.information(self, "Информация о SCmess", info_text)
 
     # ========================== БЭКЕНД: КЛЮЧИ ==========================
-    def generate_key_pair(self, username):
+    def generate_key_pair(self, username, key_size=4096):
         current_time = datetime.now().strftime("%Y%m%d%H%M%S")
         pub_dir = self.get_public_key_directory()
         priv_dir = self.get_private_key_directory()
         priv_filename = os.path.join(priv_dir, f"RSA_{username}_priv_{current_time}.pem")
         pub_filename = os.path.join(pub_dir, f"RSA_{username}_pub_{current_time}.pem")
 
-        private_key = rsa.generate_private_key(public_exponent=65537, key_size=4096, backend=default_backend())
+        private_key = rsa.generate_private_key(public_exponent=65537, key_size=key_size, backend=default_backend())
         with open(priv_filename, 'wb') as f:
             f.write(private_key.private_bytes(encoding=serialization.Encoding.PEM,
                                              format=serialization.PrivateFormat.PKCS8,
