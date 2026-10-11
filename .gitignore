@@ -1,0 +1,13 @@
+# Keys and local data: never commit private keys
+*.pem
+keys.json
+config.json
+*.enc
+
+# Build output
+__pycache__/
+/target/
+CCmess.bin
+
+# Notes
+docs/

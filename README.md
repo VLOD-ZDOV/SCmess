@@ -20,7 +20,7 @@ SCmess — это инструмент для шифрования и расши
 
 Перед использованием установите необходимые зависимости:
 
-pip install cryptography pyperclip 
+pip install -r requirements.txt  # GUI (SCmess_Gui.py) использует PySide6
 
 Для корректной работы в Linux также потребуется xsel или xclip:
 
@@ -66,3 +66,30 @@ XChaCha20-Poly1305 (дополнительный уровень безопасн
 
 Post-Quantum Cryptography (Kyber) (экспериментальная поддержка)
 
+
+## Android-приложение
+
+Нативное приложение на Kotlin + Jetpack Compose (Material 3) лежит в `android/`. Совместимо с ПК-версией и старым APK: понимает все форматы сообщений и оба формата `.enc`-файлов.
+
+- Сообщения: один получатель, группа или Legacy RSA; при расшифровке формат и ключ подбираются сами
+- Файлы любого размера, потоковое шифрование с прогрессом
+- Ключи: генерация RSA-2048/4096, импорт из файла или текста (PKCS#8 и PKCS#1), экспорт, отпечатки
+- Приватные ключи хранятся только на устройстве и дополнительно зашифрованы ключом из Android Keystore
+
+Сборка (нужны JDK 17 и Android SDK, путь к SDK в `android/local.properties`):
+
+```
+cd android
+./gradlew assembleRelease
+```
+
+APK появится в `android/app/build/outputs/apk/release/`.
+
+## Rust и C версии
+
+Консольные версии с базовыми функциями (ключи, текст, у C ещё и файлы), совместимы по формату с остальными.
+
+```
+cargo build --release                                  # Rust: target/release/scmess
+gcc CCmess.c -o CCmess.bin -lssl -lcrypto -lcjson      # C: нужны OpenSSL 3 и cJSON
+```
