@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">SCmess</string>
+    <string name="share_decrypt">Расшифровать в SCmess</string>
+</resources>
