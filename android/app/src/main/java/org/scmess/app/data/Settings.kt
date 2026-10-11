@@ -13,6 +13,7 @@ data class Settings(
     val dynamicColor: Boolean = true,
     val autoCopy: Boolean = true,
     val secureScreen: Boolean = false,
+    val checkUpdates: Boolean = true,
 )
 
 class SettingsStore(context: Context) {
@@ -26,7 +27,12 @@ class SettingsStore(context: Context) {
         dynamicColor = prefs.getBoolean("dynamic_color", true),
         autoCopy = prefs.getBoolean("auto_copy", true),
         secureScreen = prefs.getBoolean("secure_screen", false),
+        checkUpdates = prefs.getBoolean("check_updates", true),
     )
+
+    var lastUpdateCheck: Long
+        get() = prefs.getLong("last_update_check", 0)
+        set(v) = prefs.edit().putLong("last_update_check", v).apply()
 
     fun update(f: (Settings) -> Settings) {
         val s = f(_state.value)
@@ -36,6 +42,7 @@ class SettingsStore(context: Context) {
             .putBoolean("dynamic_color", s.dynamicColor)
             .putBoolean("auto_copy", s.autoCopy)
             .putBoolean("secure_screen", s.secureScreen)
+            .putBoolean("check_updates", s.checkUpdates)
             .apply()
         _state.value = s
     }

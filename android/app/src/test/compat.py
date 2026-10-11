@@ -10,7 +10,7 @@ import os
 import sys
 
 from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import padding, rsa
+from cryptography.hazmat.primitives.asymmetric import ed25519, padding, rsa, x25519
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 OAEP = padding.OAEP(mgf=padding.MGF1(hashes.SHA256()), algorithm=hashes.SHA256(), label=None)
@@ -58,6 +58,11 @@ def make(d):
     with open(f"{d}/legacy.txt", "w") as f:
         f.write(b64(b.public_key().encrypt(TEXT.encode(), OAEP)))
 
+    pk = lambda k: k.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
+                                   serialization.NoEncryption())
+    with open(f"{d}/curve_priv.pem", "wb") as f:  # X25519 + Ed25519 bundle
+        f.write(pk(x25519.X25519PrivateKey.generate()) + pk(ed25519.Ed25519PrivateKey.generate()))
+
     plain = os.urandom(300_000)
     with open(f"{d}/plain.bin", "wb") as f:
         f.write(plain)
@@ -98,6 +103,11 @@ def verify(d):
     key = a.decrypt(raw[2:2 + n], OAEP)
     plain = AESGCM(key).decrypt(raw[2 + n:2 + n + 12], raw[2 + n + 12:], None)
     assert plain == open(f"{d}/plain.bin", "rb").read()
+    blocks = open(f"{k}/curve.pem", "rb").read().split(b"-----END PRIVATE KEY-----\n")
+    assert isinstance(serialization.load_pem_private_key(blocks[0] + b"-----END PRIVATE KEY-----\n", None),
+                      x25519.X25519PrivateKey)
+    assert isinstance(serialization.load_pem_private_key(blocks[1] + b"-----END PRIVATE KEY-----\n", None),
+                      ed25519.Ed25519PrivateKey)
     print("python: all Kotlin outputs decrypt OK")
 
 

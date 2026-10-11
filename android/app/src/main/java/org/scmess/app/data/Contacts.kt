@@ -6,13 +6,16 @@ import android.security.keystore.KeyProperties
 import android.util.Log
 import org.json.JSONArray
 import org.json.JSONObject
+import org.scmess.app.crypto.KnownSigner
 import org.scmess.app.crypto.OwnKey
 import org.scmess.app.crypto.Pem
+import org.scmess.app.crypto.PrivateKeys
+import org.scmess.app.crypto.PublicKeys
+import org.scmess.app.crypto.Recipient
 import org.scmess.app.crypto.ScException
+import org.scmess.app.crypto.Signer
 import java.io.File
 import java.security.KeyStore
-import java.security.interfaces.RSAPrivateCrtKey
-import java.security.interfaces.RSAPublicKey
 import java.util.Base64
 import java.util.UUID
 import javax.crypto.Cipher
@@ -23,15 +26,24 @@ import javax.crypto.spec.GCMParameterSpec
 class Contact(
     val id: String,
     val name: String,
-    val publicKey: RSAPublicKey,
-    val privateKey: RSAPrivateCrtKey?,
+    val publicKeys: PublicKeys,
+    val privateKeys: PrivateKeys?,
 ) {
-    val isMine get() = privateKey != null
-    val fingerprint: String = Pem.fingerprint(publicKey)
-    val bits: Int get() = publicKey.modulus.bitLength()
-    val publicPem: String get() = Pem.encodePublic(publicKey)
-    val privatePem: String? get() = privateKey?.let(Pem::encodePrivate)
-    fun ownKey() = privateKey?.let { OwnKey(name, it) }
+    val isMine get() = privateKeys?.canDecrypt == true
+    val canSign get() = privateKeys?.ed25519 != null
+    val fingerprint: String = Pem.fingerprint(publicKeys)
+    val kind: String
+        get() = buildString {
+            append(publicKeys.rsa?.let { "RSA-${it.modulus.bitLength()}" } ?: "X25519")
+            if (publicKeys.ed25519 != null) append(" · подпись")
+        }
+    val compatible get() = publicKeys.rsa != null
+    val publicPem: String get() = Pem.encode(publicKeys)
+    val privatePem: String? get() = privateKeys?.let(Pem::encode)
+    fun ownKey() = privateKeys?.takeIf { it.canDecrypt }?.let { OwnKey(name, it) }
+    fun recipient() = Recipient(name, publicKeys)
+    fun signer() = privateKeys?.ed25519?.let(::Signer)
+    fun knownSigner() = publicKeys.ed25519?.let { KnownSigner(name, it) }
 }
 
 /**
@@ -49,7 +61,7 @@ class ContactStore(context: Context) {
             try {
                 val priv = o.optString("private_sealed").takeIf { it.isNotEmpty() }
                     ?.let { Pem.parse(String(Vault.open(it))).private }
-                val pub = Pem.parse(o.getString("public")).public!!
+                val pub = Pem.parse(o.getString("public")).public
                 Contact(o.getString("id"), o.getString("name"), pub, priv)
             } catch (e: Exception) {
                 Log.e("SCmess", "skipping unreadable contact", e)

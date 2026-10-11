@@ -152,6 +152,12 @@ fun FilesScreen(vm: AppViewModel) {
                         }
                     }
                 }
+                if (recipient != null && !recipient.compatible) Text(
+                    "Ключ X25519: файл откроется только в SCmess для Android" +
+                        (vm.signerContact()?.let { " · будет подписан «${it.name}»" } ?: ""),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
                 Button(
                     onClick = { encrypting = true; pick.launch(arrayOf("*/*")) },
                     enabled = !busy && recipient != null,

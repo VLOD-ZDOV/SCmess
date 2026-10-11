@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- Only for the optional update check against GitHub releases. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
     <!-- Private keys live only in app storage: no cloud backup, no device transfer. -->
     <application
         android:allowBackup="false"

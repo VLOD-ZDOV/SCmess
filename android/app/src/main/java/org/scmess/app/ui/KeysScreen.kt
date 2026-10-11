@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Draw
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FileOpen
 import androidx.compose.material.icons.filled.Key
@@ -188,7 +189,7 @@ private fun ContactRow(c: Contact, onClick: () -> Unit) {
         supportingContent = {
             Text(c.fingerprint, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
         },
-        trailingContent = { Text("RSA-${c.bits}", style = MaterialTheme.typography.labelSmall) },
+        trailingContent = { Text(c.kind, style = MaterialTheme.typography.labelSmall) },
     )
 }
 
@@ -228,7 +229,7 @@ private fun EmptyKeys(modifier: Modifier, onCreate: () -> Unit) {
 private fun GenerateDialog(vm: AppViewModel, onDone: () -> Unit) {
     val scope = rememberCoroutineScope()
     var name by rememberSaveable { mutableStateOf("") }
-    var bits by rememberSaveable { mutableStateOf(4096) }
+    var kind by rememberSaveable { mutableStateOf(KeyKind.CURVE25519) }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     AlertDialog(
@@ -247,13 +248,22 @@ private fun GenerateDialog(vm: AppViewModel, onDone: () -> Unit) {
                     modifier = Modifier.fillMaxWidth(),
                 )
                 SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                    listOf(2048, 4096).forEachIndexed { i, b ->
-                        SegmentedButton(
-                            selected = bits == b, onClick = { bits = b }, enabled = !busy,
-                            shape = SegmentedButtonDefaults.itemShape(i, 2),
-                        ) { Text("RSA-$b") }
-                    }
+                    listOf(KeyKind.CURVE25519 to "25519", KeyKind.RSA4096 to "RSA-4096", KeyKind.RSA2048 to "RSA-2048")
+                        .forEachIndexed { i, (k, label) ->
+                            SegmentedButton(
+                                selected = kind == k, onClick = { kind = k }, enabled = !busy,
+                                shape = SegmentedButtonDefaults.itemShape(i, 3),
+                            ) { Text(label, maxLines = 1) }
+                        }
                 }
+                Text(
+                    when (kind) {
+                        KeyKind.CURVE25519 -> "X25519 + Ed25519: короткий ключ, мгновенная генерация. Работает только между приложениями SCmess для Android."
+                        else -> "Совместимо с SCmess для ПК, Rust и C. Ключ подписи Ed25519 добавляется автоматически."
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
                 if (busy) Row(verticalAlignment = Alignment.CenterVertically) {
                     CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
                     Spacer(Modifier.width(12.dp))
@@ -268,7 +278,7 @@ private fun GenerateDialog(vm: AppViewModel, onDone: () -> Unit) {
                 busy = true
                 scope.launch {
                     try {
-                        vm.generate(name, bits); onDone()
+                        vm.generate(name, kind); onDone()
                     } catch (e: Exception) {
                         error = e.message; busy = false
                     }
@@ -287,10 +297,10 @@ private fun ImportDialog(vm: AppViewModel, initial: ImportDraft, contacts: List<
     var text by rememberSaveable { mutableStateOf(initial.text) }
     var error by remember { mutableStateOf<String?>(null) }
     val parsed = remember(text) { if (text.isBlank()) null else runCatching { Pem.parse(text) } }
-    val pub = parsed?.getOrNull()?.public
-    val existing = pub?.let { p -> contacts.find { it.fingerprint == Pem.fingerprint(p) } }
-    val isPrivate = parsed?.getOrNull()?.private != null
-    val mergeInto = existing?.takeIf { isPrivate && !it.isMine }
+    val keys = parsed?.getOrNull()
+    val pub = keys?.public?.takeIf { it.canEncrypt }
+    val existing = pub?.let(vm::findSame)
+    val isPrivate = keys?.private?.canDecrypt == true
 
     AlertDialog(
         onDismissRequest = onDone,
@@ -311,16 +321,17 @@ private fun ImportDialog(vm: AppViewModel, initial: ImportDraft, contacts: List<
                 val status = when {
                     parsed == null -> null
                     parsed.isFailure -> parsed.exceptionOrNull()?.message ?: "Не удалось прочитать ключ"
-                    existing != null && mergeInto == null -> "Этот ключ уже есть: «${existing.name}»"
+                    pub == null -> "Нужен ключ шифрования (RSA или X25519), а не только ключ подписи"
                     else -> null
                 }
                 if (status != null) ErrorNote(status)
                 else if (pub != null) Text(
-                    (if (isPrivate) "Приватный (ваш) ключ" else "Публичный ключ") + " · RSA-${pub.modulus.bitLength()}\n" + Pem.fingerprint(pub),
+                    (if (isPrivate) "Приватный (ваш) ключ" else "Публичный ключ") + " · " +
+                        Contact("", "", pub, null).kind + "\n" + Pem.fingerprint(pub),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.primary,
                 )
-                if (mergeInto != null) Text("Будет добавлен к контакту «${mergeInto.name}» — он станет вашим ключом.")
+                if (existing != null) Text("Совпадает с «${existing.name}»: недостающие части ключа будут добавлены к нему.")
                 else OutlinedTextField(
                     name, { name = it; error = null },
                     label = { Text("Имя") }, singleLine = true,
@@ -331,7 +342,7 @@ private fun ImportDialog(vm: AppViewModel, initial: ImportDraft, contacts: List<
         },
         confirmButton = {
             TextButton(
-                enabled = pub != null && (existing == null || mergeInto != null),
+                enabled = pub != null,
                 onClick = {
                     scope.launch {
                         try {
@@ -378,7 +389,7 @@ private fun DetailsSheet(vm: AppViewModel, c: Contact, onDismiss: () -> Unit) {
                 Text(c.name, style = MaterialTheme.typography.headlineSmall)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     SuggestionChip(onClick = {}, label = { Text(if (c.isMine) "Мой ключ" else "Контакт") })
-                    SuggestionChip(onClick = {}, label = { Text("RSA-${c.bits}") })
+                    SuggestionChip(onClick = {}, label = { Text(c.kind) })
                 }
                 SelectionContainer {
                     Text(c.fingerprint, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodyMedium)
@@ -405,6 +416,9 @@ private fun DetailsSheet(vm: AppViewModel, c: Contact, onDismiss: () -> Unit) {
             }
             if (c.isMine) SheetAction(Icons.Filled.Warning, "Экспорт приватного ключа", "Для переноса на другое устройство") {
                 confirmExport = true
+            }
+            if (c.isMine && !c.canSign) SheetAction(Icons.Filled.Draw, "Добавить ключ подписи", "Ed25519: друзья смогут проверять, что пишете именно вы") {
+                vm.addSigningKey(c.id)
             }
             SheetAction(Icons.Filled.Edit, "Переименовать", "Имя видно только вам") { rename = true }
             ListItem(

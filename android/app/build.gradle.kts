@@ -13,8 +13,8 @@ android {
         applicationId = "org.scmess.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 20
-        versionName = "2.0"
+        versionCode = 70
+        versionName = "7.0"
     }
 
     // Release key comes from ~/.gradle/gradle.properties (SCMESS_STORE_FILE, SCMESS_STORE_PASSWORD,

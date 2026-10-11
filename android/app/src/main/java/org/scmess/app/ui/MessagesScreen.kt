@@ -59,6 +59,17 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import org.scmess.app.crypto.MessageFormat
+import org.scmess.app.crypto.SigStatus
+import androidx.compose.foundation.layout.Box
+import androidx.compose.material.icons.filled.Draw
+import androidx.compose.material.icons.filled.Verified
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.automirrored.outlined.HelpOutline
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -129,8 +140,9 @@ fun MessagesScreen(vm: AppViewModel) {
                             )
                         }
                     }
-                    val count = vm.selected.count { id -> recipients.any { it.id == id } }
-                    AnimatedVisibility(count == 1) {
+                    val chosen = recipients.filter { it.id in vm.selected }
+                    val count = chosen.size
+                    AnimatedVisibility(count == 1 && chosen[0].compatible) {
                         ListItem(
                             modifier = Modifier.fillMaxWidth(),
                             colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surface),
@@ -139,11 +151,9 @@ fun MessagesScreen(vm: AppViewModel) {
                             trailingContent = { Switch(vm.legacy, { vm.legacy = it; vm.result = null }) },
                         )
                     }
-                    if (count > 1) Text(
-                        "Групповое сообщение: каждый из $count получателей сможет его прочитать",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    if (count > 1) Hint("Групповое сообщение: каждый из $count получателей сможет его прочитать")
+                    if (chosen.any { !it.compatible }) Hint("У получателей с ключом X25519 сообщение откроется только в приложении SCmess для Android")
+                    if (!(vm.legacy && count == 1 && chosen[0].compatible)) SignerRow(vm, contacts)
                 }
             }
 
@@ -185,6 +195,57 @@ fun MessagesScreen(vm: AppViewModel) {
 }
 
 @Composable
+private fun Hint(text: String) {
+    Text(text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+}
+
+@Composable
+private fun SignerRow(vm: AppViewModel, contacts: List<org.scmess.app.data.Contact>) {
+    val signers = contacts.filter { it.canSign }
+    var open by remember { mutableStateOf(false) }
+    val current = vm.signerContact()
+    ListItem(
+        modifier = Modifier.fillMaxWidth(),
+        colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surface),
+        leadingContent = { Icon(Icons.Filled.Draw, null) },
+        headlineContent = { Text("Подпись") },
+        supportingContent = {
+            Text(
+                when {
+                    signers.isEmpty() -> "Нет ключа подписи: создайте ключи или добавьте подпись к своим"
+                    current == null -> "Без подписи"
+                    else -> "От имени «${current.name}»: получатель увидит, что писали вы"
+                }
+            )
+        },
+        trailingContent = {
+            if (signers.isNotEmpty()) Box {
+                TextButton(onClick = { open = true }) { Text(current?.name ?: "Нет") }
+                DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+                    for (c in signers) DropdownMenuItem(text = { Text(c.name) }, onClick = { vm.signerId = c.id; open = false })
+                    DropdownMenuItem(text = { Text("Без подписи") }, onClick = { vm.signerId = NO_SIGNER; open = false })
+                }
+            }
+        },
+    )
+}
+
+@Composable
+private fun SigLine(sig: SigStatus) {
+    val (icon, text, color) = when (sig) {
+        SigStatus.Unsigned -> Triple(Icons.AutoMirrored.Outlined.HelpOutline, "Без подписи — отправителя не проверить", MaterialTheme.colorScheme.onSurfaceVariant)
+        SigStatus.Invalid -> Triple(Icons.Filled.Warning, "Подпись недействительна! Сообщение подделано или повреждено", MaterialTheme.colorScheme.error)
+        is SigStatus.Valid -> Triple(Icons.Filled.Verified, "Подписано: ${sig.name}", MaterialTheme.colorScheme.primary)
+        is SigStatus.Unknown -> Triple(Icons.AutoMirrored.Outlined.HelpOutline, "Подписано неизвестным ключом ${sig.fingerprint}", MaterialTheme.colorScheme.tertiary)
+    }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Icon(icon, null, tint = color, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(8.dp))
+        Text(text, color = color, style = MaterialTheme.typography.bodyMedium)
+    }
+}
+
+@Composable
 private fun ResultCard(result: MessageResult, vm: AppViewModel) {
     val ctx = LocalContext.current
     val (title, body, sensitive) = when (result) {
@@ -192,6 +253,7 @@ private fun ResultCard(result: MessageResult, vm: AppViewModel) {
             buildString {
                 append(if (result.legacy) "Legacy RSA · " else "")
                 append(if (result.recipients.size == 1) "для ${result.recipients[0]}" else "для ${result.recipients.size} получателей")
+                result.signedBy?.let { append(" · подписано") }
             },
             result.text, false,
         )
@@ -219,6 +281,7 @@ private fun ResultCard(result: MessageResult, vm: AppViewModel) {
                 Spacer(Modifier.width(8.dp))
                 Text(title, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
             }
+            if (result is MessageResult.Plain && result.value.format != MessageFormat.LEGACY) SigLine(result.value.sig)
             SelectionContainer {
                 Text(
                     body,

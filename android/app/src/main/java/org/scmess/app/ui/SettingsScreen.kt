@@ -1,6 +1,9 @@
 package org.scmess.app.ui
 
 import android.os.Build
+import android.content.Intent
+import android.net.Uri
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -31,7 +34,6 @@ import org.scmess.app.data.ThemeMode
 fun SettingsScreen(vm: AppViewModel) {
     val s by vm.settings.state.collectAsStateWithLifecycle()
     val ctx = LocalContext.current
-    val version = remember(ctx) { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName }
 
     Column(Modifier.fillMaxWidth()) {
         TopAppBar(title = { Text("Настройки") })
@@ -62,9 +64,23 @@ fun SettingsScreen(vm: AppViewModel) {
                 vm.settings.update { it.copy(secureScreen = v) }
             }
 
+            Header("Обновления")
+            Toggle("Проверять обновления", "Раз в сутки спрашивать GitHub о новой версии. Ничего о вас не отправляется", s.checkUpdates) { v ->
+                vm.settings.update { it.copy(checkUpdates = v) }
+            }
+            ListItem(
+                modifier = Modifier.clickable(enabled = !vm.checkingUpdates) {
+                    val u = vm.update
+                    if (u != null) ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(u.apkUrl ?: u.pageUrl)))
+                    else vm.checkUpdates(manual = true)
+                },
+                headlineContent = { Text(if (vm.update != null) "Скачать версию ${vm.update!!.version}" else "Проверить сейчас") },
+                supportingContent = { Text(if (vm.checkingUpdates) "Проверяю…" else vm.updateStatus ?: "Текущая версия ${vm.version}") },
+            )
+
             Header("О приложении")
             ListItem(
-                headlineContent = { Text("SCmess $version") },
+                headlineContent = { Text("SCmess ${vm.version}") },
                 supportingContent = {
                     Text("RSA-OAEP + AES-256-GCM. Совместимо с SCmess для ПК и старой версией приложения. Ключи хранятся только на устройстве.")
                 },
