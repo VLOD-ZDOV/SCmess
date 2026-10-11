@@ -91,6 +91,10 @@ object Pem {
             }
         }
         val derived = priv.publicKeys()
+        if ((pub.rsa != null && derived.rsa != null && pub.rsa != derived.rsa) ||
+            (pub.x25519 != null && derived.x25519 != null && !pub.x25519.encoded.contentEquals(derived.x25519.encoded)) ||
+            (pub.ed25519 != null && derived.ed25519 != null && !pub.ed25519.encoded.contentEquals(derived.ed25519.encoded))
+        ) throw ScException("Публичная и приватная части ключа не совпадают")
         pub = PublicKeys(pub.rsa ?: derived.rsa, pub.x25519 ?: derived.x25519, pub.ed25519 ?: derived.ed25519)
         return Parsed(pub, priv)
     }

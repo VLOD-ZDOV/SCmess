@@ -30,7 +30,7 @@ class Contact(
     val privateKeys: PrivateKeys?,
 ) {
     val isMine get() = privateKeys?.canDecrypt == true
-    val canSign get() = privateKeys?.ed25519 != null
+    val canSign get() = isMine && privateKeys?.ed25519 != null
     val fingerprint: String = Pem.fingerprint(publicKeys)
     val kind: String
         get() = buildString {

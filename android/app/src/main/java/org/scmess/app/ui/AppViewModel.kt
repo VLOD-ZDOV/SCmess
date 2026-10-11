@@ -177,7 +177,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
      */
     fun addsForeignSigningKey(parsed: Pem.Parsed): Boolean {
         val same = findSame(parsed.public) ?: return false
-        return parsed.public.ed25519 != null && same.publicKeys.ed25519 == null && parsed.private.ed25519 == null
+        if (parsed.public.ed25519 == null || same.publicKeys.ed25519 != null) return false
+        // Only the owner can include the private half of the contact's known encryption key.
+        val priv = parsed.private
+        val proven = (priv.rsa != null && same.publicKeys.rsa != null && Pem.publicOf(priv.rsa) == same.publicKeys.rsa) ||
+            (priv.x25519 != null && same.publicKeys.x25519 != null &&
+                priv.x25519.generatePublicKey().encoded.contentEquals(same.publicKeys.x25519.encoded))
+        return !proven
     }
 
     /** Adds a contact, or merges new keys (private half, signing key) into the one that already has them. */
@@ -193,8 +199,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
         if (same != null) {
             val old = same.privateKeys ?: PrivateKeys()
+            // A signing private key alone does not make a contact "mine".
             val mergedPriv = PrivateKeys(old.rsa ?: priv?.rsa, old.x25519 ?: priv?.x25519, old.ed25519 ?: priv?.ed25519)
-                .takeIf { !it.isEmpty }
+                .takeIf { it.canDecrypt }
             val p = same.publicKeys
             val mergedPub = PublicKeys(p.rsa ?: pub.rsa, p.x25519 ?: pub.x25519, p.ed25519 ?: pub.ed25519)
             val updated = Contact(same.id, same.name, mergedPub, mergedPriv)
@@ -206,7 +213,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             return
         }
         validateName(name)?.let { throw ScException(it) }
-        commit(list + Contact(ContactStore.newId(), name.trim(), pub, priv))
+        commit(list + Contact(ContactStore.newId(), name.trim(), pub, priv?.takeIf { it.canDecrypt }))
         toast(if (priv?.canDecrypt == true) "Ваш ключ «${name.trim()}» импортирован" else "Контакт «${name.trim()}» добавлен")
     }
 

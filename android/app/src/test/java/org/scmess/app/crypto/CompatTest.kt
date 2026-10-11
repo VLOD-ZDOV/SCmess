@@ -104,6 +104,14 @@ class CompatTest {
     }
 
     @Test
+    fun mismatchedBundleRejected() {
+        val a = xKeys()
+        val b = xKeys()
+        val mixed = Pem.encode(PublicKeys(x25519 = a.publicKeys().x25519, ed25519 = b.publicKeys().ed25519)) + Pem.encode(PrivateKeys(ed25519 = a.ed25519))
+        assertThrows(ScException::class.java) { Pem.parse(mixed) }
+    }
+
+    @Test
     fun pemBundles() {
         for (k in listOf(rsaKeys(), xKeys())) {
             val p = Pem.parse(Pem.encode(k))
