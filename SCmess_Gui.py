@@ -18,6 +18,40 @@ from cryptography.hazmat.backends import default_backend
 CONFIG_FILE = "config.json"
 KEYS_FILE = "keys.json"
 
+
+def split_encrypted_file(private_key, data):
+    """Разбор .enc в обоих форматах.
+    ПК:      RSA-ключ | iv(12) | tag(16) | данные
+    телефон: длина RSA-ключа (2 байта) | RSA-ключ | iv(12) | данные | tag(16)"""
+    oaep = padding.OAEP(mgf=padding.MGF1(algorithm=hashes.SHA256()), algorithm=hashes.SHA256(), label=None)
+    n = private_key.key_size // 8  # 512 для RSA-4096, 256 для RSA-2048
+    if int.from_bytes(data[:2], 'big') == n and len(data) >= 2 + n + 28:
+        try:
+            aes_key = private_key.decrypt(data[2:2 + n], oaep)
+            return aes_key, data[2 + n:2 + n + 12], data[-16:], data[2 + n + 12:-16]
+        except ValueError:
+            pass  # первые байты случайно совпали с длиной — это формат ПК
+    aes_key = private_key.decrypt(data[:n], oaep)
+    return aes_key, data[n:n + 12], data[n + 12:n + 28], data[n + 28:]
+
+
+def find_group_slot(my_private_keys, slots):
+    """Мобильное приложение подписывает слоты отпечатком ключа, а не именем — пробуем каждый свой ключ."""
+    oaep = padding.OAEP(mgf=padding.MGF1(algorithm=hashes.SHA256()), algorithm=hashes.SHA256(), label=None)
+    for username, path in my_private_keys.items():
+        try:
+            with open(path, 'rb') as f:
+                key = serialization.load_pem_private_key(f.read(), password=None, backend=default_backend())
+        except Exception:
+            continue
+        for enc_key in slots.values():
+            try:
+                key.decrypt(base64.b64decode(enc_key), oaep)
+                return username, enc_key
+            except Exception:
+                pass
+    return None, None
+
 class SCMessGUI(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -315,6 +349,9 @@ class SCMessGUI(QMainWindow):
                 target_username = username
                 encrypted_aes_key_b64 = enc_key
                 break
+
+        if not target_username:
+            target_username, encrypted_aes_key_b64 = find_group_slot(my_private_keys, payload.get("keys", {}))
 
         if not target_username:
             QMessageBox.critical(self, "Ошибка доступа", "Это сообщение не предназначалось ни одному из ваших пользователей, или имена не совпадают.")
@@ -850,15 +887,10 @@ class SCMessGUI(QMainWindow):
         return encrypted_file_path
 
     def decrypt_file_gcm_backend(self, private_key_path, encrypted_file_path):
-        with open(encrypted_file_path, 'rb') as f:
-            encrypted_aes_key = f.read(512)
-            iv = f.read(12)
-            tag = f.read(16)
-            ciphertext = f.read()
         with open(private_key_path, 'rb') as f:
             private_key = serialization.load_pem_private_key(f.read(), password=None, backend=default_backend())
-        aes_key = private_key.decrypt(encrypted_aes_key, padding.OAEP(mgf=padding.MGF1(algorithm=hashes.SHA256()),
-                                                                     algorithm=hashes.SHA256(), label=None))
+        with open(encrypted_file_path, 'rb') as f:
+            aes_key, iv, tag, ciphertext = split_encrypted_file(private_key, f.read())
         decryptor = Cipher(algorithms.AES(aes_key), modes.GCM(iv, tag), backend=default_backend()).decryptor()
         decrypted_data = decryptor.update(ciphertext) + decryptor.finalize()
         decrypted_file_path = encrypted_file_path[:-4]
