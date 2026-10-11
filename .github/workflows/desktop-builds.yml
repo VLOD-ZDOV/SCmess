@@ -1,0 +1,43 @@
+# Builds the Python console and GUI versions for Windows and Linux
+# and attaches them to the release. The APK is uploaded separately.
+name: Desktop builds
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to attach the builds to
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-22.04  # older glibc, so the binary runs on more distros
+            suffix: linux
+          - os: windows-latest
+            suffix: windows
+    runs-on: ${{ matrix.os }}
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.TAG }}
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt pyinstaller
+      - run: pyinstaller --onefile --name SCmess-console-${{ matrix.suffix }} SCmess.py
+      - run: pyinstaller --onefile --windowed --name SCmess-gui-${{ matrix.suffix }} SCmess_Gui.py
+      - name: Upload to release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$TAG" dist/SCmess-* --clobber
