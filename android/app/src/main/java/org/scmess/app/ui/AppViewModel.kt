@@ -118,6 +118,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                     if (manual) toast("У вас последняя версия")
                 }
             } catch (e: Exception) {
+                android.util.Log.w("SCmess", "update check failed", e)
                 updateStatus = "Не удалось проверить: нет связи с GitHub"
                 if (manual) toast(updateStatus!!)
             } finally {

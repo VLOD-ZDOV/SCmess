@@ -61,7 +61,7 @@ fun HashesScreen(vm: AppViewModel) {
         if (uri != null) vm.hashFile(uri)
     }
 
-    val textHashes = remember(text) { ScCrypto.hash(text.toByteArray().inputStream()) }
+    val textHashes = remember(text) { if (text.isEmpty()) null else ScCrypto.hash(text.toByteArray().inputStream()) }
     val task = vm.hashTask
     val hashes = if (fileMode) task?.result else textHashes
 

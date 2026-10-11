@@ -317,7 +317,9 @@ object ScCrypto {
 
         val plain = gcmOpen(aes, unb64(json.getString("iv")), body(json))
         val sig = checkSig(json, aes, slots.keys().asSequence().toList(), plain, signers)
-        return Decrypted(String(plain), own.name, MessageFormat.GROUP, json.optString("sender").ifEmpty { null }, sig)
+        // One-recipient X25519 messages use the group container but are not group messages to the user.
+        val format = if (slots.length() > 1) MessageFormat.GROUP else MessageFormat.SINGLE
+        return Decrypted(String(plain), own.name, format, json.optString("sender").ifEmpty { null }, sig)
     }
 
     private fun decryptLegacy(s: String, keys: List<OwnKey>): Decrypted {
