@@ -1592,7 +1592,7 @@ def main():
         "16": handle_choice_16, "17": handle_choice_17, "18": handle_choice_18,
         "19": handle_choice_19, "20": handle_choice_20, "21": handle_choice_21,
         "22": handle_choice_22, "23": handle_choice_group_chat,
-        "24": handle_choice_24, "0": lambda: exit("Выход.")
+        "24": handle_choice_24, "0": lambda: sys.exit("Выход.")
     }
 
     while True:
