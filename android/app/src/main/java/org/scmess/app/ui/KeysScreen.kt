@@ -37,6 +37,7 @@ import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
@@ -301,6 +302,8 @@ private fun ImportDialog(vm: AppViewModel, initial: ImportDraft, contacts: List<
     val pub = keys?.public?.takeIf { it.canEncrypt }
     val existing = pub?.let(vm::findSame)
     val isPrivate = keys?.private?.canDecrypt == true
+    val foreignSigning = keys != null && pub != null && vm.addsForeignSigningKey(keys)
+    var confirmed by remember(text) { mutableStateOf(false) }
 
     AlertDialog(
         onDismissRequest = onDone,
@@ -331,7 +334,23 @@ private fun ImportDialog(vm: AppViewModel, initial: ImportDraft, contacts: List<
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.primary,
                 )
-                if (existing != null) Text("Совпадает с «${existing.name}»: недостающие части ключа будут добавлены к нему.")
+                if (existing != null && foreignSigning) {
+                    Text(
+                        "В ключе «${existing.name}» появился ключ подписи. Его мог подложить кто угодно, кто знает публичный ключ " +
+                            "«${existing.name}». Сверьте новый отпечаток с владельцем голосом или лично:",
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Text(Pem.fingerprint(pub), fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.titleSmall)
+                    Row(
+                        Modifier.fillMaxWidth().clickable { confirmed = !confirmed },
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Checkbox(checked = confirmed, onCheckedChange = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Отпечаток сверен, это действительно ключ «${existing.name}»")
+                    }
+                } else if (existing != null) Text("Совпадает с «${existing.name}»: недостающие части ключа будут добавлены к нему.")
                 else OutlinedTextField(
                     name, { name = it; error = null },
                     label = { Text("Имя") }, singleLine = true,
@@ -342,11 +361,11 @@ private fun ImportDialog(vm: AppViewModel, initial: ImportDraft, contacts: List<
         },
         confirmButton = {
             TextButton(
-                enabled = pub != null,
+                enabled = pub != null && (!foreignSigning || confirmed),
                 onClick = {
                     scope.launch {
                         try {
-                            vm.import(name, text); onDone()
+                            vm.import(name, text, signingKeyConfirmed = confirmed); onDone()
                         } catch (e: Exception) {
                             error = e.message
                         }

@@ -170,14 +170,27 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             (pub.x25519 != null && c.publicKeys.x25519?.encoded?.contentEquals(pub.x25519.encoded) == true)
     }
 
+    /**
+     * True when importing [parsed] would attach a signing key to an existing contact based only on
+     * a public bundle. Anyone knowing the contact's public key can build such a bundle with their own
+     * signing key, so the user must confirm the new fingerprint with the owner first.
+     */
+    fun addsForeignSigningKey(parsed: Pem.Parsed): Boolean {
+        val same = findSame(parsed.public) ?: return false
+        return parsed.public.ed25519 != null && same.publicKeys.ed25519 == null && parsed.private.ed25519 == null
+    }
+
     /** Adds a contact, or merges new keys (private half, signing key) into the one that already has them. */
-    suspend fun import(name: String, pem: String) {
+    suspend fun import(name: String, pem: String, signingKeyConfirmed: Boolean = false) {
         val parsed = withContext(Dispatchers.Default) { Pem.parse(pem) }
         val pub = parsed.public
         if (!pub.canEncrypt) throw ScException("Нужен ключ шифрования (RSA или X25519), а не только ключ подписи")
         val priv = parsed.private.takeIf { !it.isEmpty }
         val list = _contacts.value
         val same = findSame(pub)
+        if (same != null && addsForeignSigningKey(parsed) && !signingKeyConfirmed) {
+            throw ScException("Подтвердите новый ключ подписи для «${same.name}»")
+        }
         if (same != null) {
             val old = same.privateKeys ?: PrivateKeys()
             val mergedPriv = PrivateKeys(old.rsa ?: priv?.rsa, old.x25519 ?: priv?.x25519, old.ed25519 ?: priv?.ed25519)
