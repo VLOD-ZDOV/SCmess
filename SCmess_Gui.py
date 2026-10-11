@@ -7,8 +7,9 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QTabWidget, QWidget, Q
                                QPushButton, QTextEdit, QLineEdit, QLabel, QCheckBox, QFileDialog,
                                QMessageBox, QInputDialog, QComboBox, QDialog, QListWidget,
                                QListWidgetItem, QDialogButtonBox, QHBoxLayout)
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QPalette, QColor
+import threading
+from PySide6.QtCore import Qt, QObject, Signal, QUrl
+from PySide6.QtGui import QPalette, QColor, QDesktopServices
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
@@ -17,6 +18,32 @@ from cryptography.hazmat.backends import default_backend
 
 CONFIG_FILE = "config.json"
 KEYS_FILE = "keys.json"
+__version__ = "7.0"
+RELEASES_API = "https://api.github.com/repos/VLOD-ZDOV/SCmess/releases/latest"
+
+
+def _version_tuple(v):
+    return tuple(int(p) if p.isdigit() else 0 for p in v.lstrip("vV").replace("-", ".").split("."))
+
+
+def check_for_updates(timeout=3):
+    """Возвращает (версия, ссылка), если на GitHub вышла версия новее, иначе None."""
+    import urllib.request
+    try:
+        req = urllib.request.Request(RELEASES_API, headers={"Accept": "application/vnd.github+json"})
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            data = json.load(r)
+        tag = data.get("tag_name", "")
+        if _version_tuple(tag) > _version_tuple(__version__):
+            return tag, data.get("html_url", "")
+    except Exception:
+        pass
+    return None
+
+
+class UpdateNotifier(QObject):
+    # Emitted from a worker thread; Qt delivers it to the GUI thread.
+    found = Signal(str, str)
 
 
 def split_encrypted_file(private_key, data):
@@ -55,7 +82,7 @@ def find_group_slot(my_private_keys, slots):
 class SCMessGUI(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("SCmess - Multi-Recipient")
+        self.setWindowTitle(f"SCmess {__version__}")
         self.setGeometry(100, 100, 900, 700)
 
         # Загрузка конфигурации
@@ -1255,5 +1282,20 @@ if __name__ == "__main__":
     app = QApplication(sys.argv)
     window = SCMessGUI()
     window.show()
+
+    def offer_update(tag, url):
+        answer = QMessageBox.question(window, "Обновление", f"Доступна новая версия SCmess {tag}. Открыть страницу загрузки?")
+        if answer == QMessageBox.Yes:
+            QDesktopServices.openUrl(QUrl(url))
+
+    notifier = UpdateNotifier()
+    notifier.found.connect(offer_update)
+
+    def worker():
+        update = check_for_updates()
+        if update:
+            notifier.found.emit(*update)
+
+    threading.Thread(target=worker, daemon=True).start()
     sys.exit(app.exec())
 

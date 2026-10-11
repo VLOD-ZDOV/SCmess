@@ -11,6 +11,27 @@ import pyperclip
 import logging
 from concurrent.futures import ProcessPoolExecutor
 CONFIG_FILE = "config.json"
+__version__ = "7.0"
+RELEASES_API = "https://api.github.com/repos/VLOD-ZDOV/SCmess/releases/latest"
+
+
+def _version_tuple(v):
+    return tuple(int(p) if p.isdigit() else 0 for p in v.lstrip("vV").replace("-", ".").split("."))
+
+
+def check_for_updates(timeout=3):
+    """Возвращает (версия, ссылка), если на GitHub вышла версия новее, иначе None. Ошибки сети молча игнорируются."""
+    import urllib.request
+    try:
+        req = urllib.request.Request(RELEASES_API, headers={"Accept": "application/vnd.github+json"})
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            data = json.load(r)
+        tag = data.get("tag_name", "")
+        if _version_tuple(tag) > _version_tuple(__version__):
+            return tag, data.get("html_url", "")
+    except Exception:
+        pass
+    return None
 
 # =============================================================================
 # Генерации пары ключей RSA с использованием имени пользователя и текущей даты
@@ -47,7 +68,7 @@ def get_public_key_directory():
 # =============================================================================
 
 def info():
-    print("""
+    print(f"""
 SCmess — программа для шифрования сообщений и файлов с помощью RSA-ключей.
 
 Быстрый старт:
@@ -69,7 +90,7 @@ SCmess — программа для шифрования сообщений и 
   24. Включить/выключить пользователя.
 
 Сброс: удалите файл keys.json (и ключи по желанию).
-GitHub: https://github.com/VLOD-ZDOV/SCmess  |  Версия: 1.7
+GitHub: https://github.com/VLOD-ZDOV/SCmess  |  Версия: {__version__}
 """)
     
 # =============================================================================
@@ -1317,6 +1338,10 @@ def main():
     if not os.path.exists(json_file):
         with open(json_file, 'w') as file:
             json.dump([], file)
+
+    update = check_for_updates()
+    if update:
+        print(f"Доступна новая версия SCmess {update[0]}: {update[1]}")
 
     # Показать информацию при первом запуске
     if config.get("first_run", True):
